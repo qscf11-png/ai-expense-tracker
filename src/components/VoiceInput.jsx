@@ -2,8 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Mic, MicOff, Loader2, Check, X, Sparkles } from 'lucide-react';
 import { isSpeechSupported, createSpeechRecognition } from '../services/speech';
 import { parseExpenseWithAI } from '../services/gemini';
-import { CATEGORIES, getCategoryById } from '../utils/categories';
-import { formatCurrency } from '../utils/formatters';
+import { CATEGORIES } from '../utils/categories';
 import { getToday } from '../utils/dateUtils';
 
 /**
@@ -162,10 +161,10 @@ export default function VoiceInput({ onSave, apiKey }) {
                     onClick={isListening ? stopListening : startListening}
                     disabled={isProcessing}
                     className={`relative z-10 w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 ${isListening
-                            ? 'bg-gradient-to-br from-red-500 to-red-700 shadow-[0_0_40px_rgba(239,68,68,0.5)] scale-110'
-                            : isProcessing
-                                ? 'bg-white/10 cursor-not-allowed'
-                                : 'bg-gradient-to-br from-cyan-500 to-blue-600 shadow-[0_0_30px_rgba(6,182,212,0.4)] hover:scale-105 active:scale-95'
+                        ? 'bg-gradient-to-br from-red-500 to-red-700 shadow-[0_0_40px_rgba(239,68,68,0.5)] scale-110'
+                        : isProcessing
+                            ? 'bg-white/10 cursor-not-allowed'
+                            : 'bg-gradient-to-br from-cyan-500 to-blue-600 shadow-[0_0_30px_rgba(6,182,212,0.4)] hover:scale-105 active:scale-95'
                         }`}
                 >
                     {isProcessing ? (
@@ -188,9 +187,14 @@ export default function VoiceInput({ onSave, apiKey }) {
             {/* AI 解析結果預覽 */}
             {parsed && (
                 <div className="bg-white/5 border border-white/10 backdrop-blur-xl rounded-2xl p-5 w-full max-w-sm space-y-4 animate-in">
-                    <div className="flex items-center gap-2 text-purple-400 text-sm font-medium">
-                        <Sparkles className="w-4 h-4" />
-                        AI 辨識結果
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-purple-400 text-sm font-medium">
+                            <Sparkles className="w-4 h-4" />
+                            AI 辨識結果
+                        </div>
+                        {parsed._model && (
+                            <span className="text-white/20 text-[10px] font-mono">{parsed._model}</span>
+                        )}
                     </div>
 
                     {/* 語音原文 */}
@@ -222,8 +226,8 @@ export default function VoiceInput({ onSave, apiKey }) {
                                     key={cat.id}
                                     onClick={() => handleCategoryChange(cat.id)}
                                     className={`flex flex-col items-center gap-1 p-2 rounded-xl text-xs transition-all ${parsed.category === cat.id
-                                            ? 'bg-white/15 border border-white/20 text-white'
-                                            : 'bg-white/5 text-white/50 hover:bg-white/10'
+                                        ? 'bg-white/15 border border-white/20 text-white'
+                                        : 'bg-white/5 text-white/50 hover:bg-white/10'
                                         }`}
                                 >
                                     <span className="text-lg">{cat.emoji}</span>

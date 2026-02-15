@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Key, Download, Upload, Trash2, CheckCircle2, XCircle, Shield } from 'lucide-react';
+import { Key, Download, Upload, Trash2, CheckCircle2, XCircle, Shield, LogOut, LogIn, Cloud, Smartphone } from 'lucide-react';
 import { validateApiKey } from '../services/gemini';
 import { exportData, importData, clearAllData } from '../services/db';
+import { signInWithGoogle, logOut } from '../services/auth';
 
 /**
  * 設定頁面
  */
-export default function Settings() {
+export default function Settings({ user }) {
     const [apiKey, setApiKey] = useState('');
     const [keyStatus, setKeyStatus] = useState('idle'); // idle | checking | valid | invalid
     const [showConfirmClear, setShowConfirmClear] = useState(false);
     const [message, setMessage] = useState('');
+    const [loginLoading, setLoginLoading] = useState(false);
 
     // 載入已儲存的 API Key
     useEffect(() => {
@@ -39,6 +41,25 @@ export default function Settings() {
             setKeyStatus('invalid');
             showMessage('❌ API Key 無效，請確認後重試');
         }
+    };
+
+    // Google 登入
+    const handleLogin = async () => {
+        setLoginLoading(true);
+        try {
+            await signInWithGoogle();
+            showMessage('✅ 登入成功！資料將跨裝置同步');
+        } catch (err) {
+            showMessage(`❌ ${err.message}`);
+        } finally {
+            setLoginLoading(false);
+        }
+    };
+
+    // 登出
+    const handleLogout = async () => {
+        await logOut();
+        showMessage('已登出，資料將儲存在本機');
     };
 
     // 匯出資料
@@ -98,6 +119,59 @@ export default function Settings() {
                     {message}
                 </div>
             )}
+
+            {/* 帳戶 */}
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur-sm space-y-4">
+                <div className="text-white font-medium">帳戶與同步</div>
+                {user ? (
+                    <div className="space-y-3">
+                        {/* 使用者資訊 */}
+                        <div className="flex items-center gap-3 bg-white/5 rounded-xl p-3">
+                            <img
+                                src={user.photoURL}
+                                alt=""
+                                className="w-10 h-10 rounded-full ring-2 ring-cyan-500/30"
+                            />
+                            <div className="flex-1 min-w-0">
+                                <p className="text-white text-sm font-medium truncate">{user.displayName}</p>
+                                <p className="text-white/40 text-xs truncate">{user.email}</p>
+                            </div>
+                        </div>
+                        {/* 同步狀態 */}
+                        <div className="flex items-center gap-2 text-emerald-400 text-xs">
+                            <Cloud className="w-3.5 h-3.5" />
+                            <span>已啟用雲端同步 — 手機與電腦資料即時同步</span>
+                        </div>
+                        {/* 登出按鈕 */}
+                        <button
+                            onClick={handleLogout}
+                            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors text-white/60 text-sm"
+                        >
+                            <LogOut className="w-4 h-4" />
+                            登出
+                        </button>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-white/40 text-xs">
+                            <Smartphone className="w-3.5 h-3.5" />
+                            <span>登入 Google 帳戶後，可在手機與電腦間同步資料</span>
+                        </div>
+                        <button
+                            onClick={handleLogin}
+                            disabled={loginLoading}
+                            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                        >
+                            <LogIn className="w-4 h-4" />
+                            {loginLoading ? '登入中...' : '使用 Google 帳戶登入'}
+                        </button>
+                        <div className="flex items-start gap-2 text-white/20 text-xs">
+                            <Shield className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                            <span>目前資料僅儲存在本機瀏覽器，不同裝置無法共用</span>
+                        </div>
+                    </div>
+                )}
+            </div>
 
             {/* API Key 設定 */}
             <div className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur-sm space-y-4">
@@ -215,10 +289,10 @@ export default function Settings() {
             <div className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur-sm">
                 <div className="text-white font-medium mb-2">關於</div>
                 <div className="text-white/40 text-xs space-y-1">
-                    <p>AI 語音記帳工具 v1.0</p>
-                    <p>所有資料儲存於瀏覽器本機，不會上傳至雲端。</p>
+                    <p>AI 語音記帳工具 v2.0</p>
+                    <p>{user ? '☁️ 雲端同步模式 (Firestore)' : '📱 本機儲存模式 (IndexedDB)'}</p>
                     <p>語音辨識使用 Web Speech API</p>
-                    <p>AI 分類使用 Google Gemini API</p>
+                    <p>AI 分類使用 Google Gemini API（多模型自動降級）</p>
                 </div>
             </div>
         </div>

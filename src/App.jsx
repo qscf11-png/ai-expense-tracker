@@ -1,14 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Mic, List, BarChart3, Settings as SettingsIcon, PenLine } from 'lucide-react';
+import { Mic, List, BarChart3, Settings as SettingsIcon, PenLine, LogIn } from 'lucide-react';
 import VoiceInput from './components/VoiceInput';
 import ManualInput from './components/ManualInput';
 import ExpenseList from './components/ExpenseList';
 import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
-import { addExpense } from './services/db';
+import { addExpense, setCurrentUser, migrateLocalToCloud } from './services/db';
 import { formatCurrency } from './utils/formatters';
 import { getExpensesByDate } from './services/db';
 import { getToday } from './utils/dateUtils';
+import { useAuth } from './hooks/useAuth';
+import { signInWithGoogle } from './services/auth';
 
 const TABS = [
   { id: 'voice', label: '語音', icon: Mic },
@@ -24,20 +26,34 @@ export default function App() {
   const [todayTotal, setTodayTotal] = useState(0);
   const [toast, setToast] = useState('');
   const [listKey, setListKey] = useState(0);
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  const { user, loading: authLoading } = useAuth();
+
+  // 設定 Firestore 使用者身份
+  useEffect(() => {
+    setCurrentUser(user ? user.uid : null);
+
+    // 登入後嘗試遷移本機資料到雲端
+    if (user) {
+      migrateLocalToCloud().then((count) => {
+        if (count > 0) {
+          showToast(`☁️ 已將 ${count} 筆本機資料同步到雲端`);
+        }
+      });
+    }
+  }, [user]);
 
   // 載入 API Key
   useEffect(() => {
     const saved = localStorage.getItem('gemini_api_key');
     if (saved) setApiKey(saved);
 
-    // 監聽 localStorage 變化
     const handleStorage = () => {
       const key = localStorage.getItem('gemini_api_key');
       setApiKey(key || '');
     };
     window.addEventListener('storage', handleStorage);
-
-    // 定時檢查（同一頁面 localStorage 變化不會觸發 storage event）
     const interval = setInterval(handleStorage, 2000);
 
     return () => {
@@ -48,13 +64,17 @@ export default function App() {
 
   // 載入今天的支出總額
   const loadTodayTotal = useCallback(async () => {
-    const today = await getExpensesByDate(getToday());
-    setTodayTotal(today.reduce((sum, e) => sum + e.amount, 0));
+    try {
+      const today = await getExpensesByDate(getToday());
+      setTodayTotal(today.reduce((sum, e) => sum + e.amount, 0));
+    } catch {
+      setTodayTotal(0);
+    }
   }, []);
 
   useEffect(() => {
     loadTodayTotal();
-  }, [loadTodayTotal]);
+  }, [loadTodayTotal, user]);
 
   // 儲存消費
   const handleSave = async (expense) => {
@@ -64,11 +84,33 @@ export default function App() {
     showToast(`✅ 已記錄 ${expense.item} ${formatCurrency(expense.amount)}`);
   };
 
+  // Google 登入
+  const handleLogin = async () => {
+    setLoginLoading(true);
+    try {
+      await signInWithGoogle();
+      showToast('✅ 登入成功！資料將跨裝置同步');
+    } catch (err) {
+      showToast(`❌ ${err.message}`);
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
   // 顯示提示
   const showToast = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(''), 3000);
   };
+
+  // Auth 載入中
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="text-cyan-400 animate-pulse text-lg">載入中...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col">
@@ -87,9 +129,36 @@ export default function App() {
             </h1>
             <p className="text-white/30 text-xs">語音智慧記帳工具</p>
           </div>
-          <div className="text-right">
-            <div className="text-white/40 text-xs">今日支出</div>
-            <div className="text-cyan-400 font-bold">{formatCurrency(todayTotal)}</div>
+          <div className="flex items-center gap-3">
+            {/* 登入狀態 */}
+            {user ? (
+              <div className="flex items-center gap-2">
+                <img
+                  src={user.photoURL}
+                  alt=""
+                  className="w-6 h-6 rounded-full ring-1 ring-white/20"
+                />
+                <div className="text-right">
+                  <div className="text-white/40 text-xs">今日支出</div>
+                  <div className="text-cyan-400 font-bold">{formatCurrency(todayTotal)}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleLogin}
+                  disabled={loginLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 transition-colors text-xs text-white/70"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  {loginLoading ? '登入中...' : '登入同步'}
+                </button>
+                <div className="text-right">
+                  <div className="text-white/40 text-xs">今日支出</div>
+                  <div className="text-cyan-400 font-bold">{formatCurrency(todayTotal)}</div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -116,7 +185,7 @@ export default function App() {
           <Dashboard key={listKey} />
         )}
         {activeTab === 'settings' && (
-          <Settings />
+          <Settings user={user} />
         )}
       </main>
 
@@ -131,8 +200,8 @@ export default function App() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all ${isActive
-                    ? 'text-cyan-400'
-                    : 'text-white/30 hover:text-white/50'
+                  ? 'text-cyan-400'
+                  : 'text-white/30 hover:text-white/50'
                   }`}
               >
                 <Icon className={`w-5 h-5 ${isActive ? 'drop-shadow-[0_0_6px_rgba(6,182,212,0.5)]' : ''}`} />
