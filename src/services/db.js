@@ -100,8 +100,7 @@ export async function getExpensesByDate(date) {
     if (currentUserId) {
         const q = query(
             getExpensesCollection(),
-            where('date', '==', date),
-            orderBy('createdAt', 'desc')
+            where('date', '==', date)
         );
         const snapshot = await getDocs(q);
         return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -168,14 +167,14 @@ export async function importData(jsonString) {
             const batch = writeBatch(firestore);
             const chunk = data.slice(i, i + batchSize);
             chunk.forEach((item) => {
-                const { id, ...rest } = item;
+                const { id: _id, ...rest } = item;
                 const docRef = doc(getExpensesCollection());
                 batch.set(docRef, rest);
             });
             await batch.commit();
         }
     } else {
-        await localDb.expenses.bulkAdd(data.map(({ id, ...rest }) => rest));
+        await localDb.expenses.bulkAdd(data.map(({ id: _id, ...rest }) => rest));
     }
 }
 
@@ -212,7 +211,7 @@ export async function migrateLocalToCloud() {
         const batch = writeBatch(firestore);
         const chunk = localExpenses.slice(i, i + batchSize);
         chunk.forEach((item) => {
-            const { id, ...rest } = item;
+            const { id: _id, ...rest } = item;
             const docRef = doc(getExpensesCollection());
             batch.set(docRef, rest);
         });

@@ -16,6 +16,7 @@ export default function VoiceInput({ onSave, apiKey }) {
     const [parsed, setParsed] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState('');
+    const [selectedDate, setSelectedDate] = useState(getToday());
     const recognitionRef = useRef(null);
 
     const speechSupported = isSpeechSupported();
@@ -98,12 +99,14 @@ export default function VoiceInput({ onSave, apiKey }) {
     // 確認儲存
     const handleConfirm = () => {
         if (parsed) {
+            const { _model, ...expenseData } = parsed;
             onSave({
-                ...parsed,
-                date: getToday(),
+                ...expenseData,
+                date: selectedDate,
             });
             setParsed(null);
             setTranscript('');
+            setSelectedDate(getToday());
         }
     };
 
@@ -112,6 +115,7 @@ export default function VoiceInput({ onSave, apiKey }) {
         setParsed(null);
         setTranscript('');
         setError('');
+        setSelectedDate(getToday());
     };
 
     // 修改分類
@@ -235,6 +239,21 @@ export default function VoiceInput({ onSave, apiKey }) {
                                 </button>
                             ))}
                         </div>
+                    </div>
+
+                    {/* 日期選擇（支援補登） */}
+                    <div>
+                        <label className="text-white/40 text-xs block mb-1">日期</label>
+                        <input
+                            type="date"
+                            value={selectedDate}
+                            onChange={(e) => setSelectedDate(e.target.value)}
+                            max={getToday()}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-cyan-500/50 [color-scheme:dark]"
+                        />
+                        {selectedDate !== getToday() && (
+                            <p className="text-amber-400 text-xs mt-1">📝 補登 {selectedDate} 的消費</p>
+                        )}
                     </div>
 
                     {/* 確認/取消按鈕 */}
