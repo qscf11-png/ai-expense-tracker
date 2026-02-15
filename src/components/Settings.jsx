@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Key, Download, Upload, Trash2, CheckCircle2, XCircle, Shield, LogOut, LogIn, Cloud, Smartphone } from 'lucide-react';
+import { Key, Download, Upload, Trash2, CheckCircle2, XCircle, Shield, LogOut, LogIn, Cloud, Smartphone, Eye, EyeOff } from 'lucide-react';
 import { validateApiKey } from '../services/gemini';
 import { exportData, importData, clearAllData } from '../services/db';
 import { signInWithGoogle, logOut } from '../services/auth';
@@ -13,6 +13,7 @@ export default function Settings({ user }) {
     const [showConfirmClear, setShowConfirmClear] = useState(false);
     const [message, setMessage] = useState('');
     const [loginLoading, setLoginLoading] = useState(false);
+    const [showKey, setShowKey] = useState(false);
 
     // 載入已儲存的 API Key
     useEffect(() => {
@@ -191,13 +192,22 @@ export default function Settings({ user }) {
                     </a>
                 </p>
                 <div className="flex gap-2">
-                    <input
-                        type="password"
-                        value={apiKey}
-                        onChange={(e) => { setApiKey(e.target.value); setKeyStatus('idle'); }}
-                        placeholder="AIzaSy..."
-                        className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-cyan-500/50 transition-colors"
-                    />
+                    <div className="flex-1 relative">
+                        <input
+                            type={showKey ? 'text' : 'password'}
+                            value={apiKey}
+                            onChange={(e) => { setApiKey(e.target.value); setKeyStatus('idle'); }}
+                            placeholder="AIzaSy..."
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 pr-10 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-cyan-500/50 transition-colors"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setShowKey(!showKey)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+                        >
+                            {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                    </div>
                     <button
                         onClick={handleSaveKey}
                         disabled={keyStatus === 'checking'}
