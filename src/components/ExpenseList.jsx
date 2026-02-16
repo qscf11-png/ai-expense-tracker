@@ -1,18 +1,19 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Trash2, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
+import { Trash2, ChevronDown, ChevronUp, Calendar, MessageSquareText, Clock } from 'lucide-react';
 import { getCategoryById } from '../utils/categories';
 import { formatCurrency } from '../utils/formatters';
-import { formatDateChinese, getToday, formatDate } from '../utils/dateUtils';
+import { formatDateChinese, getToday } from '../utils/dateUtils';
 import { getExpensesByDateRange } from '../services/db';
 import { deleteExpense } from '../services/db';
 
 /**
  * 消費清單元件
- * 按日分組顯示消費記錄
+ * 按日分組顯示消費記錄，每筆可點擊展開查看細節
  */
 export default function ExpenseList() {
     const [expenses, setExpenses] = useState([]);
     const [expandedDate, setExpandedDate] = useState(getToday());
+    const [expandedItemId, setExpandedItemId] = useState(null);
     const [selectedMonth, setSelectedMonth] = useState(() => {
         const now = new Date();
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -40,7 +41,6 @@ export default function ExpenseList() {
             groups[e.date].push(e);
         });
 
-        // 按日期降序排列
         return Object.entries(groups)
             .sort(([a], [b]) => b.localeCompare(a))
             .map(([date, items]) => ({
@@ -58,6 +58,7 @@ export default function ExpenseList() {
     // 刪除記錄
     const handleDelete = async (id) => {
         await deleteExpense(id);
+        setExpandedItemId(null);
         loadMonthData();
     };
 
@@ -69,6 +70,11 @@ export default function ExpenseList() {
         if (newMonth > 12) { newMonth = 1; newYear++; }
         if (newMonth < 1) { newMonth = 12; newYear--; }
         setSelectedMonth(`${newYear}-${String(newMonth).padStart(2, '0')}`);
+    };
+
+    // 點擊展開/收合某筆記錄
+    const toggleItemDetail = (id) => {
+        setExpandedItemId(expandedItemId === id ? null : id);
     };
 
     return (
@@ -142,34 +148,70 @@ export default function ExpenseList() {
                                 <div className="border-t border-white/5">
                                     {items.map((expense) => {
                                         const cat = getCategoryById(expense.category);
+                                        const isExpanded = expandedItemId === expense.id;
                                         return (
-                                            <div
-                                                key={expense.id}
-                                                className="flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors group"
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <span className="text-xl">{cat.emoji}</span>
-                                                    <div>
-                                                        <div className="text-white text-sm font-medium">
-                                                            {expense.item}
-                                                        </div>
-                                                        <div className="text-white/30 text-xs">
-                                                            {cat.name}
-                                                            {expense.note && ` · ${expense.note}`}
+                                            <div key={expense.id}>
+                                                {/* 主要行 — 點擊展開細節 */}
+                                                <button
+                                                    onClick={() => toggleItemDetail(expense.id)}
+                                                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors text-left"
+                                                >
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="text-xl">{cat.emoji}</span>
+                                                        <div>
+                                                            <div className="text-white text-sm font-medium">
+                                                                {expense.item}
+                                                            </div>
+                                                            <div className="text-white/30 text-xs">
+                                                                {cat.name}
+                                                                {expense.note && ` · ${expense.note}`}
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                                <div className="flex items-center gap-3">
-                                                    <span className="text-white font-medium">
-                                                        {formatCurrency(expense.amount)}
-                                                    </span>
-                                                    <button
-                                                        onClick={() => handleDelete(expense.id)}
-                                                        className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-500/10 transition-all"
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </button>
-                                                </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-white font-medium">
+                                                            {formatCurrency(expense.amount)}
+                                                        </span>
+                                                        <ChevronDown
+                                                            className={`w-3.5 h-3.5 text-white/20 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                                        />
+                                                    </div>
+                                                </button>
+
+                                                {/* 展開的細節面板 */}
+                                                {isExpanded && (
+                                                    <div className="px-4 pb-3 ml-9 space-y-2 animate-in">
+                                                        <div className="bg-white/5 rounded-xl p-3 space-y-2 text-xs">
+                                                            {/* 原始語音文字 */}
+                                                            {expense.rawText && (
+                                                                <div className="flex items-start gap-2">
+                                                                    <MessageSquareText className="w-3.5 h-3.5 text-purple-400 mt-0.5 shrink-0" />
+                                                                    <div>
+                                                                        <span className="text-white/40">原始輸入：</span>
+                                                                        <span className="text-white/70">{'\u300C'}{expense.rawText}{'\u300D'}</span>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                            {/* 建立時間 */}
+                                                            {expense.createdAt && (
+                                                                <div className="flex items-center gap-2">
+                                                                    <Clock className="w-3.5 h-3.5 text-white/30 shrink-0" />
+                                                                    <span className="text-white/30">
+                                                                        {new Date(expense.createdAt).toLocaleString('zh-TW')}
+                                                                    </span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        {/* 刪除按鈕 */}
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleDelete(expense.id); }}
+                                                            className="flex items-center gap-1.5 text-red-400/70 hover:text-red-400 text-xs transition-colors"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                            刪除此筆
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })}

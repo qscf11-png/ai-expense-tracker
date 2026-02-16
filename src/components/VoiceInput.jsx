@@ -103,6 +103,7 @@ export default function VoiceInput({ onSave, apiKey }) {
             onSave({
                 ...expenseData,
                 date: selectedDate,
+                rawText: transcript || '',
             });
             setParsed(null);
             setTranscript('');
