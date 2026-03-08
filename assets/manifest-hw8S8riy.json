@@ -1,0 +1,17 @@
+{
+    "name": "AI 語音記帳工具",
+    "short_name": "AI記帳",
+    "description": "語音智慧記帳，自動分類消費",
+    "start_url": "./",
+    "display": "standalone",
+    "background_color": "#020617",
+    "theme_color": "#020617",
+    "orientation": "portrait",
+    "icons": [
+        {
+            "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>",
+            "sizes": "any",
+            "type": "image/svg+xml"
+        }
+    ]
+}
