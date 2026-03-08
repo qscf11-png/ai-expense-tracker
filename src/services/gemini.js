@@ -133,11 +133,18 @@ export function setModel(modelId) {
  * 使用 Gemini API 解析自然語言消費描述（含自動降級）
  * @param {string} text - 使用者的消費描述
  * @param {string} apiKey - Gemini API Key
+ * @param {string} preferredCurrency - 預選幣種 (TWD, JPY, USD, CNY, THB, VND, AUTO)
  * @returns {Object} 解析後的消費資料 + 使用的模型資訊
  */
-export async function parseExpenseWithAI(text, apiKey) {
+export async function parseExpenseWithAI(text, apiKey, preferredCurrency = 'AUTO') {
     const genAI = new GoogleGenerativeAI(apiKey);
     let lastError = null;
+
+    // 構建提示
+    let finalPrompt = text;
+    if (preferredCurrency && preferredCurrency !== 'AUTO') {
+        finalPrompt = `使用者目前的預選幣種是 ${preferredCurrency}。如果輸入文字只包含數字或未明確提及幣種，請解析為 ${preferredCurrency}。輸入內容：${text}`;
+    }
 
     // 從目前模型開始嘗試，遍歷所有可用模型
     for (let attempt = 0; attempt < MODEL_FALLBACK_CHAIN.length; attempt++) {
@@ -158,7 +165,7 @@ export async function parseExpenseWithAI(text, apiKey) {
                 systemInstruction: SYSTEM_PROMPT,
             });
 
-            const result = await model.generateContent(text);
+            const result = await model.generateContent(finalPrompt);
             const response = await result.response;
             const responseText = response.text().trim();
 

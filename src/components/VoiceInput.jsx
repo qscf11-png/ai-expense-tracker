@@ -17,8 +17,10 @@ export default function VoiceInput({ onSave, apiKey }) {
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState('');
     const [selectedDate, setSelectedDate] = useState(getToday());
+    const [selectedCurrency, setSelectedCurrency] = useState('AUTO');
     const recognitionRef = useRef(null);
 
+    const currencies = ['AUTO', 'JPY', 'USD', 'CNY', 'THB', 'VND'];
     const speechSupported = isSpeechSupported();
 
     // 開始錄音
