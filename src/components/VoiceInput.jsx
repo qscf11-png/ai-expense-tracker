@@ -207,13 +207,31 @@ export default function VoiceInput({ onSave, apiKey }) {
 
                     {/* 金額 */}
                     <div>
-                        <label className="text-white/40 text-xs block mb-1">金額</label>
-                        <input
-                            type="number"
-                            value={parsed.amount}
-                            onChange={(e) => handleAmountChange(e.target.value)}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-2xl font-bold text-white text-center focus:outline-none focus:border-cyan-500/50"
-                        />
+                        <div className="flex items-center justify-between mb-1">
+                            <label className="text-white/40 text-xs block">金額</label>
+                            {parsed.currency !== 'TWD' && (
+                                <div className="flex items-center gap-1 text-cyan-400 text-[10px] font-medium animate-pulse">
+                                    <Languages className="w-3 h-3" />
+                                    <span>已自動從 {getCurrencyLabel(parsed.currency)} 轉換</span>
+                                </div>
+                            )}
+                        </div>
+                        <div className="relative">
+                            <input
+                                type="number"
+                                value={parsed.amount}
+                                onChange={(e) => handleAmountChange(e.target.value)}
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-2xl font-bold text-white text-center focus:outline-none focus:border-cyan-500/50"
+                            />
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 text-xs font-medium">
+                                TWD
+                            </div>
+                        </div>
+                        {parsed.currency !== 'TWD' && (
+                            <p className="text-white/40 text-[10px] mt-1 text-right">
+                                原金額：{getCurrencyLabel(parsed.currency)} {parsed.originalAmount?.toLocaleString()}
+                            </p>
+                        )}
                     </div>
 
                     {/* 品項 */}

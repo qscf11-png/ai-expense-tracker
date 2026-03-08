@@ -1,13 +1,15 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CATEGORIES } from '../utils/categories';
+import { convertToTWD } from '../utils/exchangeRate';
 
 // System prompt 引導 Gemini 從自然語言中擷取記帳資訊
 const SYSTEM_PROMPT = `你是一個記帳助手。使用者會用自然語言描述一筆消費，你需要從中擷取以下資訊並以 JSON 格式回傳：
 
 1. amount（數字）：消費金額
-2. category（字串）：消費分類，必須是以下其中之一：${CATEGORIES.map((c) => c.id).join(', ')}
-3. item（字串）：消費品項的簡短描述
-4. note（字串）：額外備註（可為空字串）
+2. currency（字串）：消費幣種，預設為 "TWD"，支援：TWD, JPY, USD, CNY, THB, VND
+3. category（字串）：消費分類，必須是以下其中之一：${CATEGORIES.map((c) => c.id).join(', ')}
+4. item（字串）：消費品項的簡短描述
+5. note（字串）：額外備註（可為空字串）
 
 分類對照：
 - food：飲食相關（餐廳、便當、飲料、零食、超市食品等）
@@ -22,12 +24,13 @@ const SYSTEM_PROMPT = `你是一個記帳助手。使用者會用自然語言描
 規則：
 - 只回傳 JSON，不要加任何其他文字或 markdown 格式
 - 金額若有「元」「塊」「NT」「$」等字樣，去掉只保留數字
+- 幣種偵測：根據使用者提到的「日幣、日圓、JPY」、「美金、USD、dollars」、「人民幣、RMB、CNY」、「泰銖、THB」、「越南盾、VND」來判斷。若未提及則預設為 "TWD"。
 - 如果無法判斷金額，amount 設為 0
 - 如果無法判斷分類，category 設為 "other"
 - item 請用簡短的中文描述（2-6 個字）
 
 回傳格式範例：
-{"amount": 80, "category": "food", "item": "午餐便當", "note": ""}`;
+{"amount": 1000, "currency": "JPY", "category": "food", "item": "拉麵", "note": ""}`;
 
 /**
  * 模型優先順序清單（由快/便宜 → 強大排列）
@@ -173,8 +176,16 @@ export async function parseExpenseWithAI(text, apiKey) {
                 parsed.category = 'other';
             }
 
-            // 確保金額為正數
-            parsed.amount = Math.abs(Number(parsed.amount) || 0);
+            // 幣種處理與金額轉換
+            parsed.currency = parsed.currency?.toUpperCase() || 'TWD';
+            parsed.originalAmount = Math.abs(Number(parsed.amount) || 0);
+
+            if (parsed.currency !== 'TWD') {
+                console.log(`💱 偵測到外幣 (${parsed.currency})，正在執行匯率轉換...`);
+                parsed.amount = await convertToTWD(parsed.originalAmount, parsed.currency);
+            } else {
+                parsed.amount = parsed.originalAmount;
+            }
 
             // 成功！更新目前使用的模型索引
             currentModelIndex = idx;
@@ -182,7 +193,7 @@ export async function parseExpenseWithAI(text, apiKey) {
             // 附加模型資訊
             parsed._model = modelConfig.name;
 
-            console.log(`✅ ${modelConfig.name} 解析成功`);
+            console.log(`✅ ${modelConfig.name} 解析成功: ${parsed.amount} TWD (${parsed.currency} ${parsed.originalAmount})`);
             return parsed;
         } catch (error) {
             lastError = error;
