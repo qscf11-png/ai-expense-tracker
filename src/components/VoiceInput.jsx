@@ -1,9 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Mic, MicOff, Loader2, Check, X, Sparkles } from 'lucide-react';
+import { Mic, MicOff, Loader2, Check, X, Sparkles, Languages } from 'lucide-react';
 import { isSpeechSupported, createSpeechRecognition } from '../services/speech';
 import { parseExpenseWithAI } from '../services/gemini';
 import { CATEGORIES } from '../utils/categories';
 import { getToday } from '../utils/dateUtils';
+import { getCurrencyLabel } from '../utils/exchangeRate';
 
 /**
  * 語音記帳元件
@@ -89,7 +90,7 @@ export default function VoiceInput({ onSave, apiKey }) {
         setIsProcessing(true);
         setError('');
         try {
-            const result = await parseExpenseWithAI(text, apiKey);
+            const result = await parseExpenseWithAI(text, apiKey, selectedCurrency);
             setParsed(result);
         } catch (err) {
             setError(err.message);
@@ -133,6 +134,32 @@ export default function VoiceInput({ onSave, apiKey }) {
 
     return (
         <div className="flex flex-col items-center gap-6 py-6">
+            {/* 幣種預選 (New) */}
+            <div className="w-full max-w-sm px-4">
+                <label className="text-white/40 text-[10px] uppercase tracking-wider font-semibold mb-2 block text-center">
+                    預選幣種
+                </label>
+                <div className="flex flex-wrap justify-center gap-2">
+                    {currencies.map((curr) => (
+                        <button
+                            key={curr}
+                            onClick={() => setSelectedCurrency(curr)}
+                            className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${selectedCurrency === curr
+                                ? 'bg-cyan-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.4)]'
+                                : 'bg-white/5 text-white/40 hover:bg-white/10 border border-white/5'
+                                }`}
+                        >
+                            {curr === 'AUTO' ? '✨ Auto' : curr}
+                        </button>
+                    ))}
+                </div>
+                {selectedCurrency !== 'AUTO' && (
+                    <p className="text-cyan-400/60 text-[10px] text-center mt-2 italic">
+                        💡 已鎖定 {getCurrencyLabel(selectedCurrency)}，說數字即可換算
+                    </p>
+                )}
+            </div>
+
             {/* 語音狀態顯示 */}
             <div className="min-h-[60px] text-center px-4 w-full">
                 {isListening && (
