@@ -51,11 +51,19 @@ export const GAISF_MODELS = [
 
 export const PROVIDERS = { GEMINI: 'gemini', GAISF: 'gaisf' };
 
-// ====== GAISF URL 建構 ======
+// ====== GAISF URL 建構（自動偵測環境） ======
 
+const GAISF_VERCEL_PROXY = 'https://twse-proxy.vercel.app/api/gaisf';
 const GAISF_LOCAL_PROXY = '/api/gaisf';
+const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('localhost');
 
 function buildGaisfUrl(modelId, apiVersion) {
+    if (isProduction) {
+        // 生產環境：透過 Vercel Serverless Function 反向代理
+        const deployPath = `/openai/deployments/${modelId}/chat/completions`;
+        return `${GAISF_VERCEL_PROXY}?path=${encodeURIComponent(deployPath)}&api-version=${apiVersion}`;
+    }
+    // 本機開發：Vite dev server proxy
     return `${GAISF_LOCAL_PROXY}/openai/deployments/${modelId}/chat/completions?api-version=${apiVersion}`;
 }
 
