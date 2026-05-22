@@ -2,7 +2,8 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CATEGORIES } from '../utils/categories';
 import { convertToTWD } from '../utils/exchangeRate';
 
-// System prompt 引導 Gemini 從自然語言中擷取記帳資訊
+// ====== System Prompt ======
+
 const SYSTEM_PROMPT = `你是一個記帳助手。使用者會用自然語言描述一筆消費，你需要從中擷取以下資訊並以 JSON 格式回傳：
 
 1. amount（數字）：消費金額
@@ -32,40 +33,66 @@ const SYSTEM_PROMPT = `你是一個記帳助手。使用者會用自然語言描
 回傳格式範例：
 {"amount": 1000, "currency": "JPY", "category": "food", "item": "拉麵", "note": ""}`;
 
-/**
- * 模型優先順序清單（由快/便宜 → 強大排列）
- * 當前面的模型 quota 耗盡時，自動嘗試下一個
- *
- * 排序策略：
- * 1. Flash 系列優先（速度快、quota 多）
- * 2. Lite 系列次之（更輕量）
- * 3. Pro 系列最後（最強但 quota 較珍貴）
- */
-const MODEL_FALLBACK_CHAIN = [
-    // --- Flash 系列 (速度快) ---
-    { id: 'gemini-2.0-flash', name: 'Gemini 2 Flash', rpm: 15, rpd: 1500 },
-    { id: 'gemini-2.0-flash-lite', name: 'Gemini 2 Flash Lite', rpm: 15, rpd: 1500 },
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', rpm: 5, rpd: 20 },
-    { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', rpm: 10, rpd: 20 },
-    { id: 'gemini-3-flash', name: 'Gemini 3 Flash', rpm: 5, rpd: 20 },
-    // --- Exp 系列 ---
-    { id: 'gemini-2.0-flash-exp', name: 'Gemini 2 Flash Exp', rpm: 15, rpd: 1500 },
-    // --- Pro 系列 (最強) ---
-    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', rpm: 15, rpd: 1500 },
-    { id: 'gemini-2.0-pro-exp', name: 'Gemini 2 Pro Exp', rpm: 15, rpd: 1500 },
-    { id: 'gemini-3-pro', name: 'Gemini 3 Pro', rpm: 15, rpd: 1500 },
+// ====== GAISF 模型清單與 API 版本 ======
+
+export const GAISF_MODELS = [
+    { id: 'gpt-4o-mini', name: 'GPT-4o Mini', apiVersion: '2024-10-21' },
+    { id: 'gpt-4o', name: 'GPT-4o', apiVersion: '2025-03-01-preview' },
+    { id: 'gpt-o3-mini', name: 'GPT o3-mini', apiVersion: '2024-12-01-preview' },
+    { id: 'deepseek-r1-0528', name: 'DeepSeek R1', apiVersion: '2024-10-21' },
+    { id: 'deepseek-v3-2', name: 'DeepSeek V3', apiVersion: '2024-05-01-preview' },
+    { id: 'gemini-3-flash', name: 'Gemini 3 Flash', apiVersion: '2024-10-21' },
+    { id: 'grok-4-1-fast-reasoning', name: 'Grok 4 Fast', apiVersion: '2024-05-01-preview' },
+    { id: 'kimi-k2-thinking', name: 'Kimi K2 Thinking', apiVersion: '2024-10-21' },
+    { id: 'gpt-5-mini', name: 'GPT-5 Mini', apiVersion: '2025-04-01-preview' },
 ];
 
-// 記錄目前正在使用的模型索引（在 session 中持久化）
-let currentModelIndex = 0;
+// ====== Provider 常數 ======
 
-// 記錄每個模型的錯誤時間戳（避免短時間內重複嘗試已知失敗的模型）
+export const PROVIDERS = { GEMINI: 'gemini', GAISF: 'gaisf' };
+
+// ====== GAISF URL 建構 ======
+
+const GAISF_LOCAL_PROXY = '/api/gaisf';
+
+function buildGaisfUrl(modelId, apiVersion) {
+    return `${GAISF_LOCAL_PROXY}/openai/deployments/${modelId}/chat/completions?api-version=${apiVersion}`;
+}
+
+// ====== GAISF 呼叫核心 ======
+
+async function callGaisf(messages, modelId, apiKey) {
+    const modelConfig = GAISF_MODELS.find((m) => m.id === modelId);
+    const apiVersion = modelConfig?.apiVersion || '2024-10-21';
+    const url = buildGaisfUrl(modelId, apiVersion);
+
+    console.log(`🤖 GAISF 呼叫 ${modelId} (api-version: ${apiVersion})`);
+
+    const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({ messages, temperature: 0.3, max_tokens: 512 }),
+    });
+
+    if (!resp.ok) {
+        const errBody = await resp.text().catch(() => '');
+        if (resp.status === 401 || resp.status === 403) throw new Error('GAISF API Key 無效或權限不足');
+        if (resp.status === 429) throw Object.assign(new Error('GAISF 配額超限'), { status: 429 });
+        if (resp.status === 404) throw new Error(`模型 ${modelId} 不可用`);
+        throw new Error(`GAISF HTTP ${resp.status}: ${errBody.substring(0, 100)}`);
+    }
+
+    const data = await resp.json();
+    return data.choices?.[0]?.message?.content || '';
+}
+
+// ====== 動態模型管理（Gemini 用） ======
+
+let selectedModelId = localStorage.getItem('gemini_selected_model') || '';
+let cachedAvailableModels = [];
 const modelCooldowns = {};
-const COOLDOWN_MS = 60 * 1000; // 冷卻時間 60 秒
+const COOLDOWN_MS = 60 * 1000;
 
-/**
- * 檢查模型是否在冷卻期間
- */
 function isModelOnCooldown(modelId) {
     const cooldownUntil = modelCooldowns[modelId];
     if (!cooldownUntil) return false;
@@ -76,16 +103,10 @@ function isModelOnCooldown(modelId) {
     return true;
 }
 
-/**
- * 將模型加入冷卻期
- */
 function setModelCooldown(modelId) {
     modelCooldowns[modelId] = Date.now() + COOLDOWN_MS;
 }
 
-/**
- * 判斷錯誤是否為 quota/rate limit 相關
- */
 function isQuotaError(error) {
     const msg = error?.message?.toLowerCase() || '';
     const status = error?.status || error?.httpStatus;
@@ -99,46 +120,146 @@ function isQuotaError(error) {
     );
 }
 
+// ====== 對外匯出 API ======
+
 /**
- * 取得目前使用的模型資訊
+ * 取得目前的 Provider
  */
-export function getCurrentModel() {
-    return MODEL_FALLBACK_CHAIN[currentModelIndex];
+export function getProvider() {
+    const source = localStorage.getItem('gemini_key_source') || 'custom';
+    return source === 'dage' ? PROVIDERS.GAISF : PROVIDERS.GEMINI;
 }
 
 /**
- * 取得所有可用模型清單
+ * 取得 / 設定選定的模型 ID
  */
-export function getModelList() {
-    return MODEL_FALLBACK_CHAIN.map((m, i) => ({
-        ...m,
-        isActive: i === currentModelIndex,
-        onCooldown: isModelOnCooldown(m.id),
-    }));
-}
-
-/**
- * 手動設定使用的模型
- */
-export function setModel(modelId) {
-    const index = MODEL_FALLBACK_CHAIN.findIndex((m) => m.id === modelId);
-    if (index !== -1) {
-        currentModelIndex = index;
-        return true;
+export function getSelectedModel() {
+    const provider = getProvider();
+    if (provider === PROVIDERS.GAISF) {
+        return localStorage.getItem('gaisf_selected_model') || 'gpt-4o-mini';
     }
-    return false;
+    return localStorage.getItem('gemini_selected_model') || '';
+}
+
+export function setSelectedModel(modelId) {
+    const provider = getProvider();
+    if (provider === PROVIDERS.GAISF) {
+        localStorage.setItem('gaisf_selected_model', modelId);
+    } else {
+        selectedModelId = modelId;
+        localStorage.setItem('gemini_selected_model', modelId);
+    }
+}
+
+export function getCachedModels() {
+    return cachedAvailableModels;
 }
 
 /**
- * 使用 Gemini API 解析自然語言消費描述（含自動降級）
- * @param {string} text - 使用者的消費描述
- * @param {string} apiKey - Gemini API Key
- * @param {string} preferredCurrency - 預選幣種 (TWD, JPY, USD, CNY, THB, VND, AUTO)
- * @returns {Object} 解析後的消費資料 + 使用的模型資訊
+ * 用 REST API 取得 Gemini 可用模型列表
+ */
+export async function fetchAvailableModels(apiKey) {
+    try {
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+        );
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const data = await response.json();
+        const models = data.models
+            .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+            .map((m) => ({
+                id: m.name.replace('models/', ''),
+                name: m.displayName || m.name.replace('models/', ''),
+                description: m.description || '',
+            }))
+            .sort((a, b) => {
+                const priority = (id) => {
+                    if (id.includes('flash-lite')) return 1;
+                    if (id.includes('flash')) return 0;
+                    if (id.includes('pro')) return 2;
+                    return 4;
+                };
+                return priority(a.id) - priority(b.id);
+            });
+
+        cachedAvailableModels = models;
+        return models;
+    } catch (error) {
+        console.warn('取得 Gemini 模型列表失敗:', error);
+        return [];
+    }
+}
+
+/**
+ * 驗證 Gemini API Key
+ */
+export async function validateGeminiKey(apiKey) {
+    try {
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+        );
+        if (response.ok) {
+            const data = await response.json();
+            const models = data.models
+                .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+                .map((m) => ({
+                    id: m.name.replace('models/', ''),
+                    name: m.displayName || m.name.replace('models/', ''),
+                }))
+                .sort((a, b) => {
+                    const p = (id) => (id.includes('flash') ? 0 : id.includes('pro') ? 2 : 4);
+                    return p(a.id) - p(b.id);
+                });
+            cachedAvailableModels = models;
+            return { valid: true, models };
+        }
+        const errorData = await response.json().catch(() => ({}));
+        return { valid: false, error: errorData?.error?.message || `HTTP ${response.status}` };
+    } catch (err) {
+        return { valid: false, error: err.message };
+    }
+}
+
+/**
+ * 驗證 GAISF API Key（用 gpt-4o-mini 發最小請求測試）
+ */
+export async function validateGaisfKey(apiKey) {
+    try {
+        const url = buildGaisfUrl('gpt-4o-mini', '2024-10-21');
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+            body: JSON.stringify({
+                messages: [{ role: 'user', content: 'Hi' }],
+                max_tokens: 5,
+            }),
+        });
+        if (!resp.ok) {
+            const errBody = await resp.text().catch(() => '');
+            throw new Error(`HTTP ${resp.status}: ${errBody.substring(0, 100)}`);
+        }
+        console.log('✅ GAISF API Key 驗證成功');
+        return { valid: true, models: GAISF_MODELS };
+    } catch (error) {
+        console.warn('❌ GAISF 驗證失敗:', error.message);
+        return { valid: false, error: error.message };
+    }
+}
+
+/**
+ * 統一驗證入口：自動根據 provider 選擇驗證方式
+ */
+export async function validateApiKey(apiKey, provider) {
+    if (provider === PROVIDERS.GAISF) return validateGaisfKey(apiKey);
+    return validateGeminiKey(apiKey);
+}
+
+/**
+ * 解析自然語言消費描述（雙引擎路由）
  */
 export async function parseExpenseWithAI(text, apiKey, preferredCurrency = 'AUTO') {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    let lastError = null;
+    const provider = getProvider();
 
     // 構建提示
     let finalPrompt = text;
@@ -146,101 +267,122 @@ export async function parseExpenseWithAI(text, apiKey, preferredCurrency = 'AUTO
         finalPrompt = `使用者目前的預選幣種是 ${preferredCurrency}。如果輸入文字只包含數字或未明確提及幣種，請解析為 ${preferredCurrency}。輸入內容：${text}`;
     }
 
-    // 從目前模型開始嘗試，遍歷所有可用模型
-    for (let attempt = 0; attempt < MODEL_FALLBACK_CHAIN.length; attempt++) {
-        const idx = (currentModelIndex + attempt) % MODEL_FALLBACK_CHAIN.length;
-        const modelConfig = MODEL_FALLBACK_CHAIN[idx];
+    // ===== GAISF 路徑 =====
+    if (provider === PROVIDERS.GAISF) {
+        const modelId = localStorage.getItem('gaisf_selected_model') || 'gpt-4o-mini';
+        const modelsToTry = [
+            modelId,
+            ...GAISF_MODELS.filter((m) => m.id !== modelId).map((m) => m.id),
+        ];
 
-        // 跳過冷卻中的模型
-        if (isModelOnCooldown(modelConfig.id)) {
-            console.log(`⏳ ${modelConfig.name} 冷卻中，跳過`);
-            continue;
+        let lastError = null;
+        for (const mid of modelsToTry) {
+            if (isModelOnCooldown(mid)) continue;
+            try {
+                const responseText = await callGaisf(
+                    [
+                        { role: 'system', content: SYSTEM_PROMPT },
+                        { role: 'user', content: finalPrompt },
+                    ],
+                    mid,
+                    apiKey
+                );
+
+                let jsonStr = responseText.trim();
+                if (jsonStr.startsWith('```')) {
+                    jsonStr = jsonStr.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+                }
+
+                const parsed = JSON.parse(jsonStr);
+                const validCategories = CATEGORIES.map((c) => c.id);
+                if (!validCategories.includes(parsed.category)) parsed.category = 'other';
+
+                parsed.currency = parsed.currency?.toUpperCase() || 'TWD';
+                parsed.originalAmount = Math.abs(Number(parsed.amount) || 0);
+                if (parsed.currency !== 'TWD') {
+                    parsed.amount = await convertToTWD(parsed.originalAmount, parsed.currency);
+                } else {
+                    parsed.amount = parsed.originalAmount;
+                }
+
+                const modelName = GAISF_MODELS.find((m) => m.id === mid)?.name || mid;
+                parsed._model = `GAISF ${modelName}`;
+                console.log(`✅ GAISF ${modelName} 解析成功`);
+                return parsed;
+            } catch (error) {
+                lastError = error;
+                if (isQuotaError(error)) {
+                    setModelCooldown(mid);
+                    console.warn(`⚠️ GAISF ${mid} 配額超限，嘗試下一個`);
+                } else {
+                    console.error(`❌ GAISF ${mid} 錯誤:`, error.message);
+                }
+            }
         }
+        throw new Error(lastError?.message || '所有 GAISF 模型都無法使用，請確認 API Key');
+    }
 
+    // ===== Gemini 路徑 =====
+    const genAI = new GoogleGenerativeAI(apiKey);
+    let lastError = null;
+
+    let modelsToTry = [];
+    if (cachedAvailableModels.length > 0) {
+        const sel = localStorage.getItem('gemini_selected_model') || '';
+        if (sel) {
+            const selected = cachedAvailableModels.find((m) => m.id === sel);
+            const others = cachedAvailableModels.filter((m) => m.id !== sel);
+            if (selected) modelsToTry.push(selected);
+            modelsToTry.push(...others);
+        } else {
+            modelsToTry = [...cachedAvailableModels];
+        }
+    } else {
+        modelsToTry.push(
+            { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+        );
+    }
+
+    for (const modelConfig of modelsToTry) {
+        if (isModelOnCooldown(modelConfig.id)) continue;
         try {
-            console.log(`🤖 嘗試使用 ${modelConfig.name} (${modelConfig.id})`);
-
+            console.log(`🤖 Gemini 嘗試 ${modelConfig.name} (${modelConfig.id})`);
             const model = genAI.getGenerativeModel({
                 model: modelConfig.id,
                 systemInstruction: SYSTEM_PROMPT,
             });
-
             const result = await model.generateContent(finalPrompt);
             const response = await result.response;
             const responseText = response.text().trim();
 
-            // 嘗試解析 JSON（移除可能的 markdown 格式包裹）
             let jsonStr = responseText;
             if (jsonStr.startsWith('```')) {
                 jsonStr = jsonStr.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
             }
 
             const parsed = JSON.parse(jsonStr);
-
-            // 驗證分類是否有效
             const validCategories = CATEGORIES.map((c) => c.id);
-            if (!validCategories.includes(parsed.category)) {
-                parsed.category = 'other';
-            }
+            if (!validCategories.includes(parsed.category)) parsed.category = 'other';
 
-            // 幣種處理與金額轉換
             parsed.currency = parsed.currency?.toUpperCase() || 'TWD';
             parsed.originalAmount = Math.abs(Number(parsed.amount) || 0);
-
             if (parsed.currency !== 'TWD') {
-                console.log(`💱 偵測到外幣 (${parsed.currency})，正在執行匯率轉換...`);
                 parsed.amount = await convertToTWD(parsed.originalAmount, parsed.currency);
             } else {
                 parsed.amount = parsed.originalAmount;
             }
 
-            // 成功！更新目前使用的模型索引
-            currentModelIndex = idx;
-
-            // 附加模型資訊
             parsed._model = modelConfig.name;
-
-            console.log(`✅ ${modelConfig.name} 解析成功: ${parsed.amount} TWD (${parsed.currency} ${parsed.originalAmount})`);
+            console.log(`✅ ${modelConfig.name} 解析成功`);
             return parsed;
         } catch (error) {
             lastError = error;
-
             if (isQuotaError(error)) {
-                console.warn(`⚠️ ${modelConfig.name} quota 已用盡，切換到下一個模型...`);
                 setModelCooldown(modelConfig.id);
-                // 繼續嘗試下一個模型
-            } else {
-                // 非 quota 錯誤（如網路錯誤、JSON 解析失敗等），也嘗試下一個
-                console.error(`❌ ${modelConfig.name} 發生錯誤:`, error.message);
-                // 非 quota 錯誤不加冷卻，可能是暫時性的
             }
         }
     }
 
-    // 所有模型都失敗
-    console.error('所有模型都無法使用:', lastError);
-    throw new Error('所有 AI 模型的額度都已用盡，請稍後再試或使用手動輸入');
-}
-
-/**
- * 驗證 API Key 是否有效
- */
-export async function validateApiKey(apiKey) {
-    try {
-        const genAI = new GoogleGenerativeAI(apiKey);
-        // 用最輕量的模型驗證
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
-        await model.countTokens('Hello');
-        return true;
-    } catch {
-        // 如果 lite 失敗，嘗試標準版
-        try {
-            const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-            await model.countTokens('Hello');
-            return true;
-        } catch {
-            return false;
-        }
-    }
+    throw new Error('所有 AI 模型都無法使用，請到設定頁面確認 API Key 與模型選擇');
 }

@@ -1,47 +1,146 @@
 import { useState, useEffect } from 'react';
-import { Key, Download, Upload, Trash2, CheckCircle2, XCircle, Shield, LogOut, LogIn, Cloud, Smartphone, Eye, EyeOff } from 'lucide-react';
-import { validateApiKey } from '../services/gemini';
+import { Key, Download, Upload, Trash2, CheckCircle2, XCircle, Shield, LogOut, LogIn, Cloud, Smartphone, Eye, EyeOff, Users, User, Cpu, ChevronDown, Zap, Sparkles } from 'lucide-react';
+import { validateApiKey, fetchAvailableModels, getSelectedModel, setSelectedModel, GAISF_MODELS, PROVIDERS } from '../services/gemini';
 import { exportData, importData, clearAllData } from '../services/db';
 import { signInWithGoogle, logOut } from '../services/auth';
+
+const KEY_SOURCES = [
+    { id: 'custom', label: '自己的 Key', icon: User, color: 'cyan' },
+    { id: 'dage', label: '達哥的 Key', icon: Users, color: 'amber' },
+];
 
 /**
  * 設定頁面
  */
 export default function Settings({ user }) {
-    const [apiKey, setApiKey] = useState('');
-    const [keyStatus, setKeyStatus] = useState('idle'); // idle | checking | valid | invalid
+    const [keySource, setKeySource] = useState('custom');
+    const [customKey, setCustomKey] = useState('');
+    const [dageKey, setDageKey] = useState('');
+    const [keyStatus, setKeyStatus] = useState('idle');
     const [showConfirmClear, setShowConfirmClear] = useState(false);
     const [message, setMessage] = useState('');
     const [loginLoading, setLoginLoading] = useState(false);
     const [showKey, setShowKey] = useState(false);
 
+    const [validationError, setValidationError] = useState('');
+
+    // 模型選擇相關
+    const [availableModels, setAvailableModels] = useState([]);
+    const [selectedModel, setSelectedModelState] = useState(getSelectedModel());
+    const [showModelPicker, setShowModelPicker] = useState(false);
+    const [modelsLoading, setModelsLoading] = useState(false);
+
     // 載入已儲存的 API Key
     useEffect(() => {
-        const saved = localStorage.getItem('gemini_api_key');
-        if (saved) {
-            setApiKey(saved);
+        const source = localStorage.getItem('gemini_key_source') || 'custom';
+        const savedCustom = localStorage.getItem('gemini_api_key_custom') || localStorage.getItem('gemini_api_key') || '';
+        const savedDage = localStorage.getItem('gemini_api_key_dage') || '';
+        setKeySource(source);
+        setCustomKey(savedCustom);
+        setDageKey(savedDage);
+
+        // 如果已有 Key，自動載入可用模型
+        const activeKeyVal = source === 'dage' ? savedDage : savedCustom;
+        if (activeKeyVal) {
             setKeyStatus('valid');
+            if (source === 'dage') {
+                // GAISF 模型是固定清單
+                setAvailableModels(GAISF_MODELS.map((m) => ({ ...m })));
+            } else {
+                loadModels(activeKeyVal);
+            }
         }
     }, []);
 
-    // 儲存 API Key
+    const activeKey = keySource === 'dage' ? dageKey : customKey;
+    const setActiveKey = keySource === 'dage' ? setDageKey : setCustomKey;
+    const storageKey = keySource === 'dage' ? 'gemini_api_key_dage' : 'gemini_api_key_custom';
+
+    // 載入可用模型
+    const loadModels = async (apiKey) => {
+        setModelsLoading(true);
+        const models = await fetchAvailableModels(apiKey);
+        setAvailableModels(models);
+        setModelsLoading(false);
+    };
+
+    // 切換 Key 來源
+    const handleSwitchSource = (sourceId) => {
+        setKeySource(sourceId);
+        setKeyStatus('idle');
+        setShowKey(false);
+        setAvailableModels([]);
+        setShowModelPicker(false);
+        localStorage.setItem('gemini_key_source', sourceId);
+
+        const key = sourceId === 'dage'
+            ? localStorage.getItem('gemini_api_key_dage') || ''
+            : localStorage.getItem('gemini_api_key_custom') || localStorage.getItem('gemini_api_key') || '';
+        if (key) {
+            localStorage.setItem('gemini_api_key', key);
+            setKeyStatus('valid');
+            if (sourceId === 'dage') {
+                setAvailableModels(GAISF_MODELS.map((m) => ({ ...m })));
+            } else {
+                loadModels(key);
+            }
+        } else {
+            localStorage.removeItem('gemini_api_key');
+        }
+    };
+
+    // 儲存 API Key（含驗證）
     const handleSaveKey = async () => {
-        if (!apiKey.trim()) {
+        if (!activeKey.trim()) {
+            localStorage.removeItem(storageKey);
             localStorage.removeItem('gemini_api_key');
             setKeyStatus('idle');
+            setAvailableModels([]);
             return;
         }
 
         setKeyStatus('checking');
-        const valid = await validateApiKey(apiKey.trim());
-        if (valid) {
-            localStorage.setItem('gemini_api_key', apiKey.trim());
+        setValidationError('');
+        const provider = keySource === 'dage' ? PROVIDERS.GAISF : PROVIDERS.GEMINI;
+        const result = await validateApiKey(activeKey.trim(), provider);
+        if (result.valid) {
+            localStorage.setItem(storageKey, activeKey.trim());
+            localStorage.setItem('gemini_api_key', activeKey.trim());
             setKeyStatus('valid');
-            showMessage('✅ API Key 驗證成功並已儲存');
+            setValidationError('');
+            setAvailableModels(result.models || []);
+            const engineName = provider === PROVIDERS.GAISF ? 'GAISF' : 'Gemini';
+            showMessage(`✅ ${engineName} 驗證成功！共 ${result.models?.length || 0} 個可用模型`);
         } else {
             setKeyStatus('invalid');
-            showMessage('❌ API Key 無效，請確認後重試');
+            setValidationError(result.error || '未知錯誤');
+            showMessage(`❌ 驗證失敗`);
         }
+    };
+
+    // 跳過驗證，直接儲存並載入模型
+    const handleForceSave = async () => {
+        if (!activeKey.trim()) return;
+        localStorage.setItem(storageKey, activeKey.trim());
+        localStorage.setItem('gemini_api_key', activeKey.trim());
+        setKeyStatus('valid');
+        setValidationError('');
+        if (keySource === 'dage') {
+            setAvailableModels(GAISF_MODELS.map((m) => ({ ...m })));
+            showMessage('⚠️ 已儲存，GAISF 模型已載入');
+        } else {
+            showMessage('⚠️ 已儲存，正在載入可用模型...');
+            await loadModels(activeKey.trim());
+        }
+    };
+
+    // 選擇模型
+    const handleSelectModel = (modelId) => {
+        setSelectedModel(modelId);
+        setSelectedModelState(modelId);
+        setShowModelPicker(false);
+        const model = availableModels.find((m) => m.id === modelId);
+        showMessage(`🤖 已切換至 ${model?.name || modelId}`);
     };
 
     // Google 登入
@@ -112,6 +211,15 @@ export default function Settings({ user }) {
         setTimeout(() => setMessage(''), 3000);
     };
 
+    // 模型分類標籤
+    const getModelTag = (id) => {
+        if (id.includes('flash-lite') || id.includes('flash_lite')) return { label: 'Lite', color: 'text-emerald-400 bg-emerald-500/15' };
+        if (id.includes('flash')) return { label: 'Flash', color: 'text-cyan-400 bg-cyan-500/15' };
+        if (id.includes('pro')) return { label: 'Pro', color: 'text-purple-400 bg-purple-500/15' };
+        if (id.includes('exp')) return { label: 'Exp', color: 'text-amber-400 bg-amber-500/15' };
+        return { label: 'Other', color: 'text-white/40 bg-white/5' };
+    };
+
     return (
         <div className="space-y-5">
             {/* 訊息提示 */}
@@ -126,7 +234,6 @@ export default function Settings({ user }) {
                 <div className="text-white font-medium">帳戶與同步</div>
                 {user ? (
                     <div className="space-y-3">
-                        {/* 使用者資訊 */}
                         <div className="flex items-center gap-3 bg-white/5 rounded-xl p-3">
                             <img
                                 src={user.photoURL}
@@ -138,12 +245,10 @@ export default function Settings({ user }) {
                                 <p className="text-white/40 text-xs truncate">{user.email}</p>
                             </div>
                         </div>
-                        {/* 同步狀態 */}
                         <div className="flex items-center gap-2 text-emerald-400 text-xs">
                             <Cloud className="w-3.5 h-3.5" />
                             <span>已啟用雲端同步 — 手機與電腦資料即時同步</span>
                         </div>
-                        {/* 登出按鈕 */}
                         <button
                             onClick={handleLogout}
                             className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors text-white/60 text-sm"
@@ -180,8 +285,47 @@ export default function Settings({ user }) {
                     <Key className="w-4 h-4 text-cyan-400" />
                     Gemini API Key
                 </div>
+
+                {/* Key 來源切換 */}
+                <div className="flex gap-2">
+                    {KEY_SOURCES.map((src) => {
+                        const Icon = src.icon;
+                        const isActive = keySource === src.id;
+                        const colorMap = {
+                            cyan: {
+                                active: 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.15)]',
+                                dot: 'bg-cyan-400',
+                            },
+                            amber: {
+                                active: 'bg-amber-500/20 border-amber-500/50 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.15)]',
+                                dot: 'bg-amber-400',
+                            },
+                        };
+                        const colors = colorMap[src.color];
+                        return (
+                            <button
+                                key={src.id}
+                                onClick={() => handleSwitchSource(src.id)}
+                                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-medium transition-all duration-200 ${
+                                    isActive
+                                        ? colors.active
+                                        : 'bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:text-white/60'
+                                }`}
+                            >
+                                <Icon className="w-4 h-4" />
+                                {src.label}
+                                {isActive && (
+                                    <span className={`w-1.5 h-1.5 rounded-full ${colors.dot} animate-pulse`} />
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
+
                 <p className="text-white/40 text-xs">
-                    輸入 Google Gemini API Key 以啟用 AI 語音分類功能。
+                    {keySource === 'dage'
+                        ? '輸入達哥提供的 Gemini API Key，與達哥共用額度。'
+                        : '輸入自己的 Google Gemini API Key 以啟用 AI 語音分類功能。'}
                     <a
                         href="https://aistudio.google.com/app/apikey"
                         target="_blank"
@@ -195,10 +339,14 @@ export default function Settings({ user }) {
                     <div className="flex-1 relative">
                         <input
                             type={showKey ? 'text' : 'password'}
-                            value={apiKey}
-                            onChange={(e) => { setApiKey(e.target.value); setKeyStatus('idle'); }}
+                            value={activeKey}
+                            onChange={(e) => { setActiveKey(e.target.value); setKeyStatus('idle'); setAvailableModels([]); }}
                             placeholder="AIzaSy..."
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 pr-10 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-cyan-500/50 transition-colors"
+                            className={`w-full bg-white/5 border rounded-xl px-4 py-3 pr-10 text-white text-sm placeholder:text-white/20 focus:outline-none transition-colors ${
+                                keySource === 'dage'
+                                    ? 'border-amber-500/20 focus:border-amber-500/50'
+                                    : 'border-white/10 focus:border-cyan-500/50'
+                            }`}
                         />
                         <button
                             type="button"
@@ -211,23 +359,42 @@ export default function Settings({ user }) {
                     <button
                         onClick={handleSaveKey}
                         disabled={keyStatus === 'checking'}
-                        className="px-5 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                        className={`px-5 py-3 rounded-xl text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 ${
+                            keySource === 'dage'
+                                ? 'bg-gradient-to-r from-amber-500 to-orange-600'
+                                : 'bg-gradient-to-r from-cyan-500 to-blue-600'
+                        }`}
                     >
                         {keyStatus === 'checking' ? '驗證中...' : '儲存'}
                     </button>
                 </div>
-                <div className="flex items-center gap-2 text-xs">
+                <div className="flex items-center gap-2 text-xs flex-wrap">
                     {keyStatus === 'valid' && (
                         <>
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                            <span className="text-emerald-400">已驗證</span>
+                            <span className="text-emerald-400">
+                                已驗證 — 目前使用{keySource === 'dage' ? '達哥的' : '自己的'} Key
+                            </span>
                         </>
                     )}
                     {keyStatus === 'invalid' && (
-                        <>
-                            <XCircle className="w-3.5 h-3.5 text-red-400" />
-                            <span className="text-red-400">無效的 API Key</span>
-                        </>
+                        <div className="w-full space-y-2">
+                            <div className="flex items-center gap-2">
+                                <XCircle className="w-3.5 h-3.5 text-red-400" />
+                                <span className="text-red-400">驗證失敗</span>
+                            </div>
+                            {validationError && (
+                                <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 text-red-300/80 text-xs font-mono break-all">
+                                    {validationError}
+                                </div>
+                            )}
+                            <button
+                                onClick={handleForceSave}
+                                className="text-amber-400 hover:text-amber-300 underline underline-offset-2 transition-colors"
+                            >
+                                跳過驗證，直接儲存 →
+                            </button>
+                        </div>
                     )}
                 </div>
                 <div className="flex items-start gap-2 text-white/30 text-xs">
@@ -235,6 +402,105 @@ export default function Settings({ user }) {
                     <span>API Key 僅儲存在您的瀏覽器中，不會上傳至任何伺服器。</span>
                 </div>
             </div>
+
+            {/* 模型選擇 — 只在有可用模型時顯示 */}
+            {(availableModels.length > 0 || modelsLoading) && (
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur-sm space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-white font-medium">
+                            <Cpu className="w-4 h-4 text-purple-400" />
+                            AI 模型選擇
+                        </div>
+                        {!modelsLoading && (
+                            <span className="text-white/30 text-xs">{availableModels.length} 個可用</span>
+                        )}
+                    </div>
+
+                    {modelsLoading ? (
+                        <div className="flex items-center gap-2 text-white/40 text-sm py-2">
+                            <div className="w-4 h-4 border-2 border-white/20 border-t-cyan-400 rounded-full animate-spin" />
+                            正在載入可用模型...
+                        </div>
+                    ) : (
+                        <>
+                            {/* 目前選定的模型 */}
+                            <button
+                                onClick={() => setShowModelPicker(!showModelPicker)}
+                                className="w-full flex items-center justify-between gap-3 px-4 py-3.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors text-left"
+                            >
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
+                                    <div className="min-w-0">
+                                        <div className="text-white text-sm font-medium truncate">
+                                            {selectedModel
+                                                ? (availableModels.find((m) => m.id === selectedModel)?.name || selectedModel)
+                                                : '自動選擇（推薦）'}
+                                        </div>
+                                        <div className="text-white/30 text-xs truncate">
+                                            {selectedModel || '依可用性自動使用最佳模型'}
+                                        </div>
+                                    </div>
+                                </div>
+                                <ChevronDown className={`w-4 h-4 text-white/30 shrink-0 transition-transform ${showModelPicker ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            {/* 模型選擇清單 */}
+                            {showModelPicker && (
+                                <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                                    {/* 自動選擇選項 */}
+                                    <button
+                                        onClick={() => handleSelectModel('')}
+                                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left ${
+                                            !selectedModel
+                                                ? 'bg-purple-500/15 border border-purple-500/30'
+                                                : 'bg-white/5 border border-transparent hover:bg-white/10'
+                                        }`}
+                                    >
+                                        <Zap className="w-4 h-4 text-purple-400 shrink-0" />
+                                        <div className="min-w-0">
+                                            <div className="text-white text-sm font-medium">自動選擇</div>
+                                            <div className="text-white/30 text-xs">自動降級，確保最高可用性</div>
+                                        </div>
+                                        {!selectedModel && (
+                                            <CheckCircle2 className="w-4 h-4 text-purple-400 shrink-0 ml-auto" />
+                                        )}
+                                    </button>
+
+                                    {/* 各個模型 */}
+                                    {availableModels.map((model) => {
+                                        const tag = getModelTag(model.id);
+                                        const isSelected = selectedModel === model.id;
+                                        return (
+                                            <button
+                                                key={model.id}
+                                                onClick={() => handleSelectModel(model.id)}
+                                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-left ${
+                                                    isSelected
+                                                        ? 'bg-purple-500/15 border border-purple-500/30'
+                                                        : 'bg-white/5 border border-transparent hover:bg-white/10'
+                                                }`}
+                                            >
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-white text-sm font-medium truncate">{model.name}</span>
+                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${tag.color}`}>
+                                                            {tag.label}
+                                                        </span>
+                                                    </div>
+                                                    <div className="text-white/25 text-xs truncate mt-0.5">{model.id}</div>
+                                                </div>
+                                                {isSelected && (
+                                                    <CheckCircle2 className="w-4 h-4 text-purple-400 shrink-0" />
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+            )}
 
             {/* 資料管理 */}
             <div className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur-sm space-y-3">
@@ -302,7 +568,7 @@ export default function Settings({ user }) {
                     <p>AI 語音記帳工具 v2.0</p>
                     <p>{user ? '☁️ 雲端同步模式 (Firestore)' : '📱 本機儲存模式 (IndexedDB)'}</p>
                     <p>語音辨識使用 Web Speech API</p>
-                    <p>AI 分類使用 Google Gemini API（多模型自動降級）</p>
+                    <p>AI 分類使用 Google Gemini API（動態模型選擇）</p>
                 </div>
             </div>
         </div>
