@@ -3,14 +3,43 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+
+    <!-- PWA & 主題色 -->
     <meta name="theme-color" content="#020617" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="AI 語音智慧記帳工具 - 說出消費，自動分類記錄" />
+
+    <!-- iOS 原生 App 體驗 -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="description" content="AI 語音智慧記帳工具 - 說出消費，自動分類記錄" />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>" />
-    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>" />
-    <link rel="manifest" href="manifest.json" />
-    <title>AI 記帳 - 語音智慧記帳工具</title>
+    <meta name="apple-mobile-web-app-title" content="AI記帳" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- 防止 iOS 電話/地址自動偵測 -->
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- 圖示 -->
+    <link rel="icon" type="image/svg+xml" href="icon-192.svg" />
+    <link rel="apple-touch-icon" href="icon-192.svg" />
+
+    <!-- iOS 啟動畫面（暗色背景） -->
+    <style>
+      /* iOS 啟動畫面背景色 */
+      html, body { background-color: #020617; }
+
+      /* 防止 iOS 橡皮筋過度滾動 */
+      html { overflow: hidden; height: 100%; }
+      body { overflow: auto; height: 100%; -webkit-overflow-scrolling: touch; }
+
+      /* 防止 iOS 長按選取/放大鏡 */
+      * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+      input, textarea { -webkit-user-select: text; user-select: text; }
+
+      /* 防止雙擊縮放 */
+      * { touch-action: manipulation; }
+    </style>
+
+    <title>AI 記帳</title>
   </head>
   <body class="bg-slate-950">
     <div id="root"></div>
