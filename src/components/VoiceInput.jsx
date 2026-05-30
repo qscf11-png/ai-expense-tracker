@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { Mic, MicOff, Loader2, Check, X, Sparkles, Languages } from 'lucide-react';
+import { useState, useRef, useCallback } from 'react';
+import { Mic, MicOff, Loader2, Check, X, Sparkles, Languages, Send, PenLine } from 'lucide-react';
 import { isSpeechSupported, createSpeechRecognition } from '../services/speech';
 import { parseExpenseWithAI } from '../services/gemini';
 import { CATEGORIES } from '../utils/categories';
@@ -8,17 +8,19 @@ import { getCurrencyLabel } from '../utils/exchangeRate';
 
 /**
  * 語音記帳元件
- * 大型麥克風按鈕 + 語音辨識 + AI 分類 + 確認儲存
+ * 大型麥克風按鈕 + 語音辨識 + 文字確認/編輯 + AI 分類 + 確認儲存
  */
 export default function VoiceInput({ onSave, apiKey }) {
     const [isListening, setIsListening] = useState(false);
     const [transcript, setTranscript] = useState('');
+    const [editingText, setEditingText] = useState('');
     const [interimText, setInterimText] = useState('');
     const [parsed, setParsed] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState('');
     const [selectedDate, setSelectedDate] = useState(getToday());
     const [selectedCurrency, setSelectedCurrency] = useState('AUTO');
+    const [showEditor, setShowEditor] = useState(false);
     const recognitionRef = useRef(null);
 
     const currencies = ['AUTO', 'JPY', 'USD', 'CNY', 'THB', 'VND'];
@@ -33,15 +35,24 @@ export default function VoiceInput({ onSave, apiKey }) {
 
         setError('');
         setTranscript('');
+        setEditingText('');
         setInterimText('');
         setParsed(null);
+        setShowEditor(false);
 
         try {
             recognitionRef.current = createSpeechRecognition({
                 onResult: (text) => {
+                    // 語音完全結束才觸發，直接送 AI 解析
                     setTranscript(text);
+                    setEditingText(text);
                     setInterimText('');
                     setIsListening(false);
+                    if (apiKey) {
+                        processWithAI(text);
+                    } else {
+                        setError('請先在設定頁面輸入 API Key');
+                    }
                 },
                 onInterim: (text) => {
                     setInterimText(text);
@@ -51,9 +62,7 @@ export default function VoiceInput({ onSave, apiKey }) {
                 },
                 onError: (err) => {
                     setIsListening(false);
-                    if (err === 'no-speech') {
-                        setError('未偵測到語音，請再試一次');
-                    } else if (err === 'not-allowed') {
+                    if (err === 'not-allowed') {
                         setError('請允許麥克風權限');
                     } else {
                         setError(`語音辨識錯誤: ${err}`);
@@ -66,24 +75,26 @@ export default function VoiceInput({ onSave, apiKey }) {
         } catch (err) {
             setError(err.message);
         }
-    }, [speechSupported]);
+    }, [speechSupported, apiKey]);
 
     // 停止錄音
     const stopListening = useCallback(() => {
         if (recognitionRef.current) {
             recognitionRef.current.stop();
         }
-        setIsListening(false);
     }, []);
 
-    // 取得到語音文字後，自動呼叫 AI 解析
-    useEffect(() => {
-        if (transcript && apiKey) {
-            processWithAI(transcript);
-        } else if (transcript && !apiKey) {
-            setError('請先在設定頁面輸入 Gemini API Key');
+    // 手動修正文字後重新送 AI
+    const handleResend = () => {
+        if (!editingText.trim()) return;
+        if (!apiKey) {
+            setError('請先在設定頁面輸入 API Key');
+            return;
         }
-    }, [transcript, apiKey]);
+        setTranscript(editingText.trim());
+        setShowEditor(false);
+        processWithAI(editingText.trim());
+    };
 
     // AI 解析
     const processWithAI = async (text) => {
@@ -211,10 +222,51 @@ export default function VoiceInput({ onSave, apiKey }) {
                 </button>
             </div>
 
-            {/* 語音辨識結果 */}
+            {/* 語音辨識結果 + 修正功能 */}
             {transcript && !parsed && !isProcessing && (
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 w-full max-w-sm">
-                    <p className="text-white/80 text-center">「{transcript}」</p>
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 w-full max-w-sm space-y-3">
+                    {showEditor ? (
+                        <>
+                            <label className="text-white/40 text-xs flex items-center gap-1">
+                                <PenLine className="w-3 h-3" />
+                                修正辨識文字
+                            </label>
+                            <input
+                                type="text"
+                                value={editingText}
+                                onChange={(e) => setEditingText(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleResend()}
+                                autoFocus
+                                className="w-full bg-white/5 border border-cyan-500/30 rounded-xl px-4 py-3 text-white text-center text-lg focus:outline-none focus:border-cyan-500/50"
+                            />
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setShowEditor(false)}
+                                    className="flex-1 py-2.5 rounded-xl bg-white/5 text-white/40 text-sm hover:bg-white/10 transition-colors"
+                                >
+                                    取消
+                                </button>
+                                <button
+                                    onClick={handleResend}
+                                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-sm font-medium hover:opacity-90 transition-opacity"
+                                >
+                                    <Send className="w-3.5 h-3.5" />
+                                    重新分析
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-white/80 text-center text-lg">「{transcript}」</p>
+                            <button
+                                onClick={() => setShowEditor(true)}
+                                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-white/5 text-white/40 text-xs hover:bg-white/10 hover:text-white/60 transition-colors"
+                            >
+                                <PenLine className="w-3 h-3" />
+                                辨識有誤？點此修正
+                            </button>
+                        </>
+                    )}
                 </div>
             )}
 
