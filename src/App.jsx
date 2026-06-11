@@ -74,6 +74,10 @@ export default function App() {
 
   useEffect(() => {
     loadTodayTotal();
+
+    const handleExpenseChanged = () => loadTodayTotal();
+    window.addEventListener('expense-changed', handleExpenseChanged);
+    return () => window.removeEventListener('expense-changed', handleExpenseChanged);
   }, [loadTodayTotal, user]);
 
   // 儲存消費

@@ -60,6 +60,7 @@ export default memo(function ExpenseList() {
         await deleteExpense(id);
         setExpandedItemId(null);
         loadMonthData();
+        window.dispatchEvent(new Event('expense-changed'));
     };
 
     // 切換月份
