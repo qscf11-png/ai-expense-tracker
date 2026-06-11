@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, memo } from 'react';
 import { TrendingUp, TrendingDown, Minus, DollarSign, ShoppingBag, ArrowUpDown, Award } from 'lucide-react';
 import { getExpensesByDateRange } from '../services/db';
 import { useAnalytics } from '../hooks/useAnalytics';
@@ -23,7 +23,7 @@ const PERIODS = [
 /**
  * 分析儀表板
  */
-export default function Dashboard() {
+export default memo(function Dashboard() {
     const [period, setPeriod] = useState('week');
     const [expenses, setExpenses] = useState([]);
     const [prevExpenses, setPrevExpenses] = useState([]);
@@ -200,4 +200,4 @@ export default function Dashboard() {
             )}
         </div>
     );
-}
+})

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, memo } from 'react';
 import { Mic, MicOff, Loader2, Check, X, Sparkles, Languages, Send, PenLine } from 'lucide-react';
 import { isSpeechSupported, createSpeechRecognition } from '../services/speech';
 import { parseExpenseWithAI } from '../services/gemini';
@@ -10,7 +10,7 @@ import { getCurrencyLabel } from '../utils/exchangeRate';
  * 語音記帳元件
  * 大型麥克風按鈕 + 語音辨識 + 文字確認/編輯 + AI 分類 + 確認儲存
  */
-export default function VoiceInput({ onSave, apiKey }) {
+export default memo(function VoiceInput({ onSave, apiKey }) {
     const [isListening, setIsListening] = useState(false);
     const [transcript, setTranscript] = useState('');
     const [editingText, setEditingText] = useState('');
@@ -384,4 +384,4 @@ export default function VoiceInput({ onSave, apiKey }) {
             )}
         </div>
     );
-}
+})

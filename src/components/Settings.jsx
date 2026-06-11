@@ -78,6 +78,7 @@ export default function Settings({ user }) {
             : localStorage.getItem('gemini_api_key_custom') || localStorage.getItem('gemini_api_key') || '';
         if (key) {
             localStorage.setItem('gemini_api_key', key);
+            window.dispatchEvent(new Event('apikey-changed'));
             setKeyStatus('valid');
             if (sourceId === 'dage') {
                 setAvailableModels(GAISF_MODELS.map((m) => ({ ...m })));
@@ -86,6 +87,7 @@ export default function Settings({ user }) {
             }
         } else {
             localStorage.removeItem('gemini_api_key');
+            window.dispatchEvent(new Event('apikey-changed'));
         }
     };
 
@@ -106,6 +108,7 @@ export default function Settings({ user }) {
         if (result.valid) {
             localStorage.setItem(storageKey, activeKey.trim());
             localStorage.setItem('gemini_api_key', activeKey.trim());
+            window.dispatchEvent(new Event('apikey-changed'));
             setKeyStatus('valid');
             setValidationError('');
             setAvailableModels(result.models || []);
@@ -123,6 +126,7 @@ export default function Settings({ user }) {
         if (!activeKey.trim()) return;
         localStorage.setItem(storageKey, activeKey.trim());
         localStorage.setItem('gemini_api_key', activeKey.trim());
+        window.dispatchEvent(new Event('apikey-changed'));
         setKeyStatus('valid');
         setValidationError('');
         if (keySource === 'dage') {

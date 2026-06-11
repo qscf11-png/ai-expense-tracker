@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { PlusCircle, Languages } from 'lucide-react';
 import { CATEGORIES } from '../utils/categories';
 import { getToday } from '../utils/dateUtils';
@@ -7,7 +7,7 @@ import { convertToTWD, getCurrencyLabel } from '../utils/exchangeRate';
 /**
  * 手動記帳表單
  */
-export default function ManualInput({ onSave }) {
+export default memo(function ManualInput({ onSave }) {
     const [amount, setAmount] = useState('');
     const [currency, setCurrency] = useState('TWD');
     const [convertedPreview, setConvertedPreview] = useState(null);
@@ -18,17 +18,17 @@ export default function ManualInput({ onSave }) {
 
     const currencies = ['TWD', 'JPY', 'USD', 'CNY', 'THB', 'VND'];
 
-    // 處理即時換算預覽
+    // 處理即時換算預覽（500ms 防抖，避免每次按鍵都打 API）
     useEffect(() => {
-        const updatePreview = async () => {
-            if (currency !== 'TWD' && amount && Number(amount) > 0) {
-                const twd = await convertToTWD(Number(amount), currency);
-                setConvertedPreview(twd);
-            } else {
-                setConvertedPreview(null);
-            }
-        };
-        updatePreview();
+        if (currency === 'TWD' || !amount || Number(amount) <= 0) {
+            setConvertedPreview(null);
+            return;
+        }
+        const timer = setTimeout(async () => {
+            const twd = await convertToTWD(Number(amount), currency);
+            setConvertedPreview(twd);
+        }, 500);
+        return () => clearTimeout(timer);
     }, [amount, currency]);
 
     const handleSubmit = async (e) => {
@@ -176,4 +176,4 @@ export default function ManualInput({ onSave }) {
             </button>
         </form>
     );
-}
+})

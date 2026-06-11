@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, memo } from 'react';
 import { Trash2, ChevronDown, ChevronUp, Calendar, MessageSquareText, Clock } from 'lucide-react';
 import { getCategoryById } from '../utils/categories';
 import { formatCurrency } from '../utils/formatters';
@@ -10,7 +10,7 @@ import { deleteExpense } from '../services/db';
  * 消費清單元件
  * 按日分組顯示消費記錄，每筆可點擊展開查看細節
  */
-export default function ExpenseList() {
+export default memo(function ExpenseList() {
     const [expenses, setExpenses] = useState([]);
     const [expandedDate, setExpandedDate] = useState(getToday());
     const [expandedItemId, setExpandedItemId] = useState(null);
@@ -223,4 +223,4 @@ export default function ExpenseList() {
             )}
         </div>
     );
-}
+})

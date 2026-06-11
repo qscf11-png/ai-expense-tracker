@@ -44,7 +44,7 @@ export default function App() {
     }
   }, [user]);
 
-  // 載入 API Key
+  // 載入 API Key（監聽 storage 事件 + 自訂事件，不再輪詢）
   useEffect(() => {
     const saved = localStorage.getItem('gemini_api_key');
     if (saved) setApiKey(saved);
@@ -54,11 +54,11 @@ export default function App() {
       setApiKey(key || '');
     };
     window.addEventListener('storage', handleStorage);
-    const interval = setInterval(handleStorage, 2000);
+    window.addEventListener('apikey-changed', handleStorage);
 
     return () => {
       window.removeEventListener('storage', handleStorage);
-      clearInterval(interval);
+      window.removeEventListener('apikey-changed', handleStorage);
     };
   }, []);
 
@@ -77,12 +77,12 @@ export default function App() {
   }, [loadTodayTotal, user]);
 
   // 儲存消費
-  const handleSave = async (expense) => {
+  const handleSave = useCallback(async (expense) => {
     await addExpense(expense);
     await loadTodayTotal();
     setListKey((k) => k + 1);
     showToast(`✅ 已記錄 ${expense.item} ${formatCurrency(expense.amount)}`);
-  };
+  }, [loadTodayTotal]);
 
   // Google 登入
   const handleLogin = async () => {
