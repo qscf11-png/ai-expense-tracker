@@ -11,6 +11,7 @@ const SYSTEM_PROMPT = `你是一個記帳助手。使用者會用自然語言描
 3. category（字串）：消費分類，必須是以下其中之一：${CATEGORIES.map((c) => c.id).join(', ')}
 4. item（字串）：消費品項的簡短描述
 5. note（字串）：額外備註（可為空字串）
+6. currencyMentioned（布林）：使用者是否在文字中「明確說出幣別」（例：日幣、日圓、美金、台幣、人民幣、泰銖、越南盾）。有明確說出→true；只給數字、沒提到任何幣別→false
 
 分類對照：
 - food：飲食相關（餐廳、便當、飲料、零食、超市食品等）
@@ -31,7 +32,8 @@ const SYSTEM_PROMPT = `你是一個記帳助手。使用者會用自然語言描
 - item 請用簡短的中文描述（2-6 個字）
 
 回傳格式範例：
-{"amount": 1000, "currency": "JPY", "category": "food", "item": "拉麵", "note": ""}`;
+{"amount": 1000, "currency": "JPY", "currencyMentioned": true, "category": "food", "item": "拉麵", "note": ""}
+（若使用者只說「拉麵 1000」沒提幣別，則 currencyMentioned 為 false、currency 預設 "TWD"）`;
 
 // ====== GAISF 模型清單與 API 版本 ======
 
@@ -306,6 +308,11 @@ export async function parseExpenseWithAI(text, apiKey, preferredCurrency = 'AUTO
                 if (!validCategories.includes(parsed.category)) parsed.category = 'other';
 
                 parsed.currency = parsed.currency?.toUpperCase() || 'TWD';
+                // 預選幣種覆寫：有鎖定幣種(非AUTO)且未明確說出幣別 → 以鎖定幣種為準
+                if (preferredCurrency && preferredCurrency !== 'AUTO' &&
+                    !(parsed.currencyMentioned === true || parsed.currencyMentioned === 'true')) {
+                    parsed.currency = preferredCurrency;
+                }
                 parsed.originalAmount = Math.abs(Number(parsed.amount) || 0);
                 if (parsed.currency !== 'TWD') {
                     parsed.amount = await convertToTWD(parsed.originalAmount, parsed.currency);
@@ -374,6 +381,11 @@ export async function parseExpenseWithAI(text, apiKey, preferredCurrency = 'AUTO
             if (!validCategories.includes(parsed.category)) parsed.category = 'other';
 
             parsed.currency = parsed.currency?.toUpperCase() || 'TWD';
+            // 預選幣種覆寫：有鎖定幣種(非AUTO)且未明確說出幣別 → 以鎖定幣種為準
+            if (preferredCurrency && preferredCurrency !== 'AUTO' &&
+                !(parsed.currencyMentioned === true || parsed.currencyMentioned === 'true')) {
+                parsed.currency = preferredCurrency;
+            }
             parsed.originalAmount = Math.abs(Number(parsed.amount) || 0);
             if (parsed.currency !== 'TWD') {
                 parsed.amount = await convertToTWD(parsed.originalAmount, parsed.currency);

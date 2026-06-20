@@ -35,4 +35,4 @@ npm run dev
 
 ## 部署
 
-推送到 `main` 分支即自動部署至 GitHub Pages。
+推送到 `master` 分支即自動部署至 GitHub Pages。
