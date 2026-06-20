@@ -265,6 +265,12 @@ export async function validateApiKey(apiKey, provider) {
     return validateGeminiKey(apiKey);
 }
 
+// 判斷使用者文字是否「明確提到某種幣別」（刻意不含太常見的 元/塊/$/NT，避免把台幣誤判成有指定）
+const CURRENCY_RE = /(日幣|日圓|日元|美金|美元|人民幣|泰銖|越南盾|港幣|歐元|英鎊|韓[元圜]|新台幣|台幣|JPY|USD|CNY|RMB|TWD|THB|VND|EUR|円|¥)/i;
+function mentionsCurrency(text) {
+    return CURRENCY_RE.test(text || '');
+}
+
 /**
  * 解析自然語言消費描述（雙引擎路由）
  */
@@ -308,9 +314,8 @@ export async function parseExpenseWithAI(text, apiKey, preferredCurrency = 'AUTO
                 if (!validCategories.includes(parsed.category)) parsed.category = 'other';
 
                 parsed.currency = parsed.currency?.toUpperCase() || 'TWD';
-                // 預選幣種覆寫：有鎖定幣種(非AUTO)且未明確說出幣別 → 以鎖定幣種為準
-                if (preferredCurrency && preferredCurrency !== 'AUTO' &&
-                    !(parsed.currencyMentioned === true || parsed.currencyMentioned === 'true')) {
+                // 預選幣種覆寫：有鎖定幣種(非AUTO)且使用者文字沒提到任何幣別 → 強制用鎖定幣種
+                if (preferredCurrency && preferredCurrency !== 'AUTO' && !mentionsCurrency(text)) {
                     parsed.currency = preferredCurrency;
                 }
                 parsed.originalAmount = Math.abs(Number(parsed.amount) || 0);
@@ -381,9 +386,8 @@ export async function parseExpenseWithAI(text, apiKey, preferredCurrency = 'AUTO
             if (!validCategories.includes(parsed.category)) parsed.category = 'other';
 
             parsed.currency = parsed.currency?.toUpperCase() || 'TWD';
-            // 預選幣種覆寫：有鎖定幣種(非AUTO)且未明確說出幣別 → 以鎖定幣種為準
-            if (preferredCurrency && preferredCurrency !== 'AUTO' &&
-                !(parsed.currencyMentioned === true || parsed.currencyMentioned === 'true')) {
+            // 預選幣種覆寫：有鎖定幣種(非AUTO)且使用者文字沒提到任何幣別 → 強制用鎖定幣種
+            if (preferredCurrency && preferredCurrency !== 'AUTO' && !mentionsCurrency(text)) {
                 parsed.currency = preferredCurrency;
             }
             parsed.originalAmount = Math.abs(Number(parsed.amount) || 0);
