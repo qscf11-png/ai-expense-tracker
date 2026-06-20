@@ -5,6 +5,7 @@ import ManualInput from './components/ManualInput';
 import ExpenseList from './components/ExpenseList';
 import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
+import PWAUpdater from './components/PWAUpdater';
 import { addExpense, setCurrentUser, migrateLocalToCloud } from './services/db';
 import { formatCurrency } from './utils/formatters';
 import { getExpensesByDate } from './services/db';
@@ -173,6 +174,9 @@ export default function App() {
           {toast}
         </div>
       )}
+
+      {/* PWA 新版偵測橫幅 */}
+      <PWAUpdater />
 
       {/* 主要內容 */}
       <main className="relative z-10 flex-1 px-5 pb-24 overflow-y-auto">
