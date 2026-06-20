@@ -58,6 +58,10 @@ export default defineConfig({
       },
     }),
   ],
+  define: {
+    // 注入建置時間，App 內顯示版本用（每次 build 都會變）
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   base: '/ai-expense-tracker/',
   server: {
     proxy: {

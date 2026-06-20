@@ -1,8 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Key, Download, Upload, Trash2, CheckCircle2, XCircle, Shield, LogOut, LogIn, Cloud, Smartphone, Eye, EyeOff, Users, User, Cpu, ChevronDown, Zap, Sparkles } from 'lucide-react';
+import { Key, Download, Upload, Trash2, CheckCircle2, XCircle, Shield, LogOut, LogIn, Cloud, Smartphone, Eye, EyeOff, Users, User, Cpu, ChevronDown, Zap, Sparkles, RefreshCw } from 'lucide-react';
 import { validateApiKey, fetchAvailableModels, getSelectedModel, setSelectedModel, GAISF_MODELS, PROVIDERS } from '../services/gemini';
 import { exportData, importData, clearAllData } from '../services/db';
 import { signInWithGoogle, logOut } from '../services/auth';
+
+// 建置時間（由 vite define 注入），用來在 App 內顯示目前版本，方便判斷是否已更新到最新
+const BUILD_LABEL = (() => {
+    try {
+        const iso = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : null;
+        return iso ? new Date(iso).toLocaleString('zh-TW', { hour12: false }) : 'dev';
+    } catch {
+        return 'dev';
+    }
+})();
 
 const KEY_SOURCES = [
     { id: 'custom', label: '自己的 Key', icon: User, color: 'cyan' },
@@ -213,6 +223,25 @@ export default function Settings({ user }) {
     const showMessage = (msg) => {
         setMessage(msg);
         setTimeout(() => setMessage(''), 3000);
+    };
+
+    // 強制更新到最新版：登出 Service Worker + 清掉所有快取 + 帶時戳重載（繞過所有快取）
+    const handleForceUpdate = async () => {
+        showMessage('🔄 清除快取並更新中…');
+        try {
+            if ('serviceWorker' in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(regs.map((r) => r.unregister()));
+            }
+            if (window.caches) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map((k) => caches.delete(k)));
+            }
+        } catch (e) {
+            console.warn('清快取失敗', e);
+        }
+        // 帶時戳重載，確保連 HTTP 快取也一起繞過
+        setTimeout(() => location.replace(location.pathname + '?_t=' + Date.now()), 400);
     };
 
     // 模型分類標籤
@@ -563,6 +592,32 @@ export default function Settings({ user }) {
                         </div>
                     </div>
                 )}
+            </div>
+
+            {/* 版本與更新 */}
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur-sm space-y-3">
+                <div className="flex items-center gap-2 text-white font-medium">
+                    <RefreshCw className="w-4 h-4 text-cyan-400" />
+                    版本與更新
+                </div>
+                <div className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3">
+                    <div className="text-xs min-w-0">
+                        <div className="text-white/40">目前版本（建置時間）</div>
+                        <div className="text-white/80 font-mono mt-0.5 break-all">{BUILD_LABEL}</div>
+                    </div>
+                    <span className="text-emerald-400 text-[10px] px-2 py-1 rounded-full bg-emerald-500/10 shrink-0 ml-2">已載入</span>
+                </div>
+                <button
+                    onClick={handleForceUpdate}
+                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-medium hover:opacity-90 active:scale-[0.98] transition"
+                >
+                    <RefreshCw className="w-4 h-4" />
+                    強制更新到最新版（清快取重載）
+                </button>
+                <p className="text-white/30 text-[11px] leading-relaxed">
+                    看不到新功能時點這顆：會登出舊的 Service Worker、清除所有快取、重新載入最新版。
+                    先記下上面的「建置時間」，更新後若時間變新＝成功切到最新版。
+                </p>
             </div>
 
             {/* 關於 */}
