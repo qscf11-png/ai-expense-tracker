@@ -22,6 +22,15 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
     const [selectedCurrency, setSelectedCurrency] = useState('AUTO');
     const [showEditor, setShowEditor] = useState(false);
     const recognitionRef = useRef(null);
+    // 用 ref 同步「最新」的預選幣種。語音的 onResult callback 被 useCallback 凍結在
+    // 初次 render 的閉包裡，若直接讀 state 會永遠是舊值('AUTO')，導致選了日幣卻不換算。
+    const selectedCurrencyRef = useRef('AUTO');
+
+    // 選幣種：同時更新畫面 state 與 ref（ref 供凍結的語音 callback 讀取最新值）
+    const chooseCurrency = (curr) => {
+        setSelectedCurrency(curr);
+        selectedCurrencyRef.current = curr;
+    };
 
     const currencies = ['AUTO', 'JPY', 'USD', 'CNY', 'THB', 'VND'];
     const speechSupported = isSpeechSupported();
@@ -101,7 +110,8 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
         setIsProcessing(true);
         setError('');
         try {
-            const result = await parseExpenseWithAI(text, apiKey, selectedCurrency);
+            // 讀 ref 而非 state，確保拿到的是「使用者剛剛選的」幣種，不是凍結的舊值
+            const result = await parseExpenseWithAI(text, apiKey, selectedCurrencyRef.current);
             setParsed(result);
         } catch (err) {
             setError(err.message);
@@ -154,7 +164,7 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
                     {currencies.map((curr) => (
                         <button
                             key={curr}
-                            onClick={() => setSelectedCurrency(curr)}
+                            onClick={() => chooseCurrency(curr)}
                             className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${selectedCurrency === curr
                                 ? 'bg-cyan-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.4)]'
                                 : 'bg-white/5 text-white/40 hover:bg-white/10 border border-white/5'
