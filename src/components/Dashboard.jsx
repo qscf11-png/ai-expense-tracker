@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, memo } from 'react';
-import { TrendingUp, TrendingDown, Minus, DollarSign, ShoppingBag, ArrowUpDown, Award } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, DollarSign, ShoppingBag, ArrowUpDown, Award, CalendarRange, Filter } from 'lucide-react';
 import { getExpensesByDateRange } from '../services/db';
 import { useAnalytics } from '../hooks/useAnalytics';
 import {
@@ -18,6 +18,7 @@ const PERIODS = [
     { id: 'week', label: '週' },
     { id: 'month', label: '月' },
     { id: 'year', label: '年' },
+    { id: 'custom', label: '自訂' },
 ];
 
 /**
@@ -27,6 +28,11 @@ export default memo(function Dashboard() {
     const [period, setPeriod] = useState('week');
     const [expenses, setExpenses] = useState([]);
     const [prevExpenses, setPrevExpenses] = useState([]);
+    // 自訂日期區間（預設近 30 天）
+    const [customStart, setCustomStart] = useState(() => getDateRange(30).start);
+    const [customEnd, setCustomEnd] = useState(getToday());
+    // 分類篩選（空陣列 = 全部）
+    const [selectedCats, setSelectedCats] = useState([]);
 
     // 根據選擇的週期取得日期範圍
     const dateRange = useMemo(() => {
@@ -35,9 +41,10 @@ export default memo(function Dashboard() {
             case 'week': return getThisWeekRange();
             case 'month': return getThisMonthRange();
             case 'year': return getThisYearRange();
+            case 'custom': return { start: customStart, end: customEnd };
             default: return getThisWeekRange();
         }
-    }, [period]);
+    }, [period, customStart, customEnd]);
 
     // 前一期日期範圍
     const prevRange = useMemo(() => {
@@ -46,6 +53,8 @@ export default memo(function Dashboard() {
 
     // 載入資料
     useEffect(() => {
+        // 自訂區間不完整或顛倒時不載入
+        if (!dateRange.start || !dateRange.end || dateRange.start > dateRange.end) return;
         const load = async () => {
             const data = await getExpensesByDateRange(dateRange.start, dateRange.end);
             setExpenses(data);
@@ -55,8 +64,26 @@ export default memo(function Dashboard() {
         load();
     }, [dateRange, prevRange]);
 
+    // 切換分類篩選
+    const toggleCategory = (catId) => {
+        setSelectedCats((prev) =>
+            prev.includes(catId) ? prev.filter((c) => c !== catId) : [...prev, catId]
+        );
+    };
+
+    // 依分類篩選（空 = 全部）
+    const filteredExpenses = useMemo(() => {
+        if (selectedCats.length === 0) return expenses;
+        return expenses.filter((e) => selectedCats.includes(e.category));
+    }, [expenses, selectedCats]);
+
+    const filteredPrevExpenses = useMemo(() => {
+        if (selectedCats.length === 0) return prevExpenses;
+        return prevExpenses.filter((e) => selectedCats.includes(e.category));
+    }, [prevExpenses, selectedCats]);
+
     // 分析數據
-    const analytics = useAnalytics(expenses, prevExpenses);
+    const analytics = useAnalytics(filteredExpenses, filteredPrevExpenses);
 
     // 趨勢圖資料
     const trendData = useMemo(() => {
@@ -122,6 +149,76 @@ export default memo(function Dashboard() {
                         {p.label}
                     </button>
                 ))}
+            </div>
+
+            {/* 自訂日期區間 */}
+            {period === 'custom' && (
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 backdrop-blur-sm space-y-2">
+                    <div className="flex items-center gap-2 text-white/60 text-xs font-medium">
+                        <CalendarRange className="w-3.5 h-3.5 text-cyan-400" />
+                        自訂日期區間
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="date"
+                            value={customStart}
+                            max={customEnd}
+                            onChange={(e) => setCustomStart(e.target.value)}
+                            className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-cyan-500/50 [color-scheme:dark]"
+                        />
+                        <span className="text-white/30 text-sm shrink-0">～</span>
+                        <input
+                            type="date"
+                            value={customEnd}
+                            min={customStart}
+                            max={getToday()}
+                            onChange={(e) => setCustomEnd(e.target.value)}
+                            className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-cyan-500/50 [color-scheme:dark]"
+                        />
+                    </div>
+                    {customStart > customEnd && (
+                        <p className="text-red-400 text-xs">⚠️ 起始日期不可晚於結束日期</p>
+                    )}
+                </div>
+            )}
+
+            {/* 分類篩選 */}
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 backdrop-blur-sm space-y-3">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-white/60 text-xs font-medium">
+                        <Filter className="w-3.5 h-3.5 text-purple-400" />
+                        分類篩選
+                    </div>
+                    {selectedCats.length > 0 && (
+                        <span className="text-purple-400 text-xs">已選 {selectedCats.length} 類</span>
+                    )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    <button
+                        onClick={() => setSelectedCats([])}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${selectedCats.length === 0
+                                ? 'bg-purple-500/25 border border-purple-500/50 text-purple-300 shadow-[0_0_12px_rgba(168,85,247,0.2)]'
+                                : 'bg-white/5 border border-white/10 text-white/40 hover:bg-white/10'
+                            }`}
+                    >
+                        ✨ 全部
+                    </button>
+                    {CATEGORIES.map((cat) => {
+                        const isSelected = selectedCats.includes(cat.id);
+                        return (
+                            <button
+                                key={cat.id}
+                                onClick={() => toggleCategory(cat.id)}
+                                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${isSelected
+                                        ? 'bg-cyan-500/25 border border-cyan-500/50 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.2)]'
+                                        : 'bg-white/5 border border-white/10 text-white/40 hover:bg-white/10'
+                                    }`}
+                            >
+                                {cat.emoji} {cat.name}
+                            </button>
+                        );
+                    })}
+                </div>
             </div>
 
             {/* 統計摘要卡片 */}
@@ -191,11 +288,11 @@ export default memo(function Dashboard() {
             )}
 
             {/* 空狀態 */}
-            {expenses.length === 0 && (
+            {filteredExpenses.length === 0 && (
                 <div className="text-center text-white/30 py-12">
                     <p className="text-4xl mb-3">📊</p>
-                    <p>此期間尚無消費記錄</p>
-                    <p className="text-xs mt-1">去記帳頁面新增記錄吧！</p>
+                    <p>{selectedCats.length > 0 ? '所選分類在此期間無消費記錄' : '此期間尚無消費記錄'}</p>
+                    <p className="text-xs mt-1">{selectedCats.length > 0 ? '試試調整分類或日期區間' : '去記帳頁面新增記錄吧！'}</p>
                 </div>
             )}
         </div>
