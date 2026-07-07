@@ -233,12 +233,60 @@ function scheduledDateFor(ym, dayOfMonth) {
 }
 
 /**
+ * 清除重複的固定入帳記錄（同一項目同一天只保留一筆）
+ * 自我修復：修正過去因重複執行造成的多重入帳
+ * @returns {number} 移除的重複筆數
+ */
+async function dedupeRecurringRecords() {
+    const all = await getAllExpenses();
+    const seen = new Set();
+    let removed = 0;
+    for (const r of all) {
+        if (r.recurringId === undefined || r.recurringId === null) continue;
+        const key = `${r.recurringId}|${r.date}`;
+        if (seen.has(key)) {
+            await deleteExpense(r.id);
+            removed++;
+        } else {
+            seen.add(key);
+        }
+    }
+    return removed;
+}
+
+// 防止同時多次執行自動入帳（App 啟動時 auth 狀態變化可能觸發多次）
+let applyingRecurring = false;
+
+/**
  * 自動入帳：檢查所有啟用的固定收支項目，補記到期未記錄的月份
  * 應在 App 啟動時呼叫
  * @returns {number} 本次自動記錄的筆數
  */
 export async function applyRecurringItems() {
+    if (applyingRecurring) return 0; // 已有另一次執行中，直接略過
+    applyingRecurring = true;
+    try {
+        return await doApplyRecurringItems();
+    } finally {
+        applyingRecurring = false;
+    }
+}
+
+async function doApplyRecurringItems() {
     const items = await getRecurringItems();
+    if (items.length === 0) return 0;
+
+    // 先清除過去重複入帳的記錄（自我修復）
+    await dedupeRecurringRecords();
+
+    // 以「實際已存在的記錄」為準判斷該月是否已入帳，不只依賴 lastApplied
+    const allRecords = await getAllExpenses();
+    const existingMonths = new Set(
+        allRecords
+            .filter((r) => r.recurringId !== undefined && r.recurringId !== null)
+            .map((r) => `${r.recurringId}|${r.date.slice(0, 7)}`)
+    );
+
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     const currentMonth = todayStr.slice(0, 7);
@@ -258,17 +306,20 @@ export async function applyRecurringItems() {
             const scheduled = scheduledDateFor(cursor, item.dayOfMonth);
             if (scheduled > todayStr) break; // 本月排程日尚未到
 
-            await addExpense({
-                amount: item.amount,
-                category: item.category,
-                item: item.name,
-                note: item.type === 'income' ? '🔁 固定收入' : '🔁 固定支出',
-                date: scheduled,
-                type: item.type,
-                recurringId: item.id,
-            });
+            // 該月已有此項目的記錄則跳過，避免重複入帳
+            if (!existingMonths.has(`${item.id}|${cursor}`)) {
+                await addExpense({
+                    amount: item.amount,
+                    category: item.category,
+                    item: item.name,
+                    note: item.type === 'income' ? '🔁 固定收入' : '🔁 固定支出',
+                    date: scheduled,
+                    type: item.type,
+                    recurringId: item.id,
+                });
+                appliedCount++;
+            }
             last = cursor;
-            appliedCount++;
             cursor = nextMonth(cursor);
         }
 

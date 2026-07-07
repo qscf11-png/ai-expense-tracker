@@ -35,6 +35,9 @@ export default function App() {
   useEffect(() => {
     setCurrentUser(user ? user.uid : null);
 
+    // 等 auth 狀態確定後才執行，避免 null → user 變化觸發兩次自動入帳
+    if (authLoading) return;
+
     const init = async () => {
       // 登入後嘗試遷移本機資料到雲端
       if (user) {
@@ -56,7 +59,7 @@ export default function App() {
       }
     };
     init();
-  }, [user]);
+  }, [user, authLoading]);
 
   // 載入 API Key（監聽 storage 事件 + 自訂事件，不再輪詢）
   useEffect(() => {
