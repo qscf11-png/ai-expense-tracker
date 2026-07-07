@@ -247,10 +247,11 @@ export async function applyRecurringItems() {
     for (const item of items) {
         if (!item.enabled) continue;
 
-        // 從上次入帳的下一個月開始補記；從未入帳則從建立當月開始
+        // 從上次入帳的下一個月開始補記；
+        // 從未入帳則從回溯起始月（startMonth）開始，未設定則從建立當月開始
         let cursor = item.lastApplied
             ? nextMonth(item.lastApplied)
-            : (item.createdAt || todayStr).slice(0, 7);
+            : (item.startMonth || (item.createdAt || todayStr).slice(0, 7));
         let last = item.lastApplied;
 
         while (cursor <= currentMonth) {

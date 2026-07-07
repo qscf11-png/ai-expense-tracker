@@ -21,11 +21,13 @@ export default memo(function RecurringManager({ onChanged }) {
     const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
     // 新增表單欄位
+    const currentMonth = new Date().toISOString().slice(0, 7);
     const [formType, setFormType] = useState('expense');
     const [formName, setFormName] = useState('');
     const [formAmount, setFormAmount] = useState('');
     const [formCategory, setFormCategory] = useState(CATEGORIES[0].id);
     const [formDay, setFormDay] = useState(1);
+    const [formStartMonth, setFormStartMonth] = useState(currentMonth);
 
     const isIncome = formType === 'income';
     const activeCategories = isIncome ? INCOME_CATEGORIES : CATEGORIES;
@@ -54,10 +56,13 @@ export default memo(function RecurringManager({ onChanged }) {
             amount: Number(formAmount),
             category: formCategory,
             dayOfMonth: Number(formDay),
+            // 回溯補記起始月（YYYY-MM），不早於當月則等同無回溯
+            startMonth: formStartMonth || currentMonth,
         });
         setFormName('');
         setFormAmount('');
         setFormDay(1);
+        setFormStartMonth(currentMonth);
         setShowForm(false);
         // 若本月排程日已到，立即入帳
         const applied = await applyRecurringItems();
@@ -68,7 +73,21 @@ export default memo(function RecurringManager({ onChanged }) {
 
     // 啟用/停用
     const handleToggle = async (item) => {
-        await updateRecurringItem(item.id, { enabled: !item.enabled });
+        if (!item.enabled) {
+            // 重新啟用：從當月開始記，不補記停用期間的月份
+            const now = new Date();
+            const prevM = now.getMonth() === 0
+                ? `${now.getFullYear() - 1}-12`
+                : `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
+            const updates = { enabled: true };
+            // 已在本月入帳過則不回退，避免重複記錄
+            if (!item.lastApplied || item.lastApplied < prevM) updates.lastApplied = prevM;
+            await updateRecurringItem(item.id, updates);
+            const applied = await applyRecurringItems();
+            if (applied > 0) window.dispatchEvent(new Event('expense-changed'));
+        } else {
+            await updateRecurringItem(item.id, { enabled: false });
+        }
         await loadItems();
     };
 
@@ -224,6 +243,23 @@ export default memo(function RecurringManager({ onChanged }) {
                             </select>
                             <span className="text-white/40 text-xs shrink-0">號</span>
                         </div>
+                    </div>
+
+                    {/* 回溯補記起始月 */}
+                    <div className="space-y-1">
+                        <label className="text-white/40 text-xs">從哪個月開始記錄（可回溯補記歷史月份）</label>
+                        <input
+                            type="month"
+                            value={formStartMonth}
+                            max={currentMonth}
+                            onChange={(e) => setFormStartMonth(e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-amber-500/50 [color-scheme:dark]"
+                        />
+                        {formStartMonth < currentMonth && (
+                            <p className="text-amber-400/80 text-xs">
+                                📝 將自動補記 {formStartMonth.replace('-', ' 年 ')} 月起的每月記錄
+                            </p>
+                        )}
                     </div>
 
                     {/* 分類 */}
