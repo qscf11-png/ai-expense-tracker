@@ -1,5 +1,5 @@
 import { useState, useEffect, memo } from 'react';
-import { Repeat, Plus, Trash2, Power, TrendingDown, TrendingUp } from 'lucide-react';
+import { Repeat, Plus, Trash2, Power, TrendingDown, TrendingUp, Pencil } from 'lucide-react';
 import { CATEGORIES, INCOME_CATEGORIES, getCategoryById } from '../utils/categories';
 import {
     addRecurringItem,
@@ -19,6 +19,7 @@ export default memo(function RecurringManager({ onChanged }) {
     const [items, setItems] = useState([]);
     const [showForm, setShowForm] = useState(false);
     const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+    const [editingId, setEditingId] = useState(null);
 
     // 新增表單欄位
     const currentMonth = new Date().toISOString().slice(0, 7);
@@ -47,10 +48,35 @@ export default memo(function RecurringManager({ onChanged }) {
         setFormCategory(type === 'income' ? INCOME_CATEGORIES[0].id : CATEGORIES[0].id);
     };
 
-    // 新增固定項目
+    // 重置表單
+    const resetForm = () => {
+        setFormType('expense');
+        setFormName('');
+        setFormAmount('');
+        setFormCategory(CATEGORIES[0].id);
+        setFormDay(1);
+        setFormStartMonth(currentMonth);
+        setEditingId(null);
+        setShowForm(false);
+    };
+
+    // 開始編輯既有項目：帶入現有值
+    const handleEdit = (item) => {
+        setFormType(item.type || 'expense');
+        setFormName(item.name);
+        setFormAmount(String(item.amount));
+        setFormCategory(item.category);
+        setFormDay(item.dayOfMonth);
+        setFormStartMonth(item.startMonth || (item.createdAt || '').slice(0, 7) || currentMonth);
+        setEditingId(item.id);
+        setConfirmDeleteId(null);
+        setShowForm(true);
+    };
+
+    // 新增或更新固定項目
     const handleAdd = async () => {
         if (!formName.trim() || !formAmount || Number(formAmount) <= 0) return;
-        await addRecurringItem({
+        const fields = {
             name: formName.trim(),
             type: formType,
             amount: Number(formAmount),
@@ -58,13 +84,15 @@ export default memo(function RecurringManager({ onChanged }) {
             dayOfMonth: Number(formDay),
             // 回溯補記起始月（YYYY-MM），不早於當月則等同無回溯
             startMonth: formStartMonth || currentMonth,
-        });
-        setFormName('');
-        setFormAmount('');
-        setFormDay(1);
-        setFormStartMonth(currentMonth);
-        setShowForm(false);
-        // 若本月排程日已到，立即入帳
+        };
+        if (editingId) {
+            // 更新：重設 lastApplied 觸發重新掃描，缺漏月份會補記、已入帳月份不重複
+            await updateRecurringItem(editingId, { ...fields, lastApplied: null });
+        } else {
+            await addRecurringItem(fields);
+        }
+        resetForm();
+        // 若有到期未入帳的月份，立即補記
         const applied = await applyRecurringItems();
         if (applied > 0) window.dispatchEvent(new Event('expense-changed'));
         await loadItems();
@@ -121,6 +149,13 @@ export default memo(function RecurringManager({ onChanged }) {
                     {income ? '+' : '-'}{formatCurrency(item.amount)}
                 </span>
                 <button
+                    onClick={() => handleEdit(item)}
+                    title="編輯"
+                    className="p-1.5 rounded-lg text-white/20 hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors shrink-0"
+                >
+                    <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button
                     onClick={() => handleToggle(item)}
                     title={item.enabled ? '停用' : '啟用'}
                     className={`p-1.5 rounded-lg transition-colors shrink-0 ${item.enabled
@@ -157,7 +192,7 @@ export default memo(function RecurringManager({ onChanged }) {
                     固定收支管理
                 </div>
                 <button
-                    onClick={() => setShowForm(!showForm)}
+                    onClick={() => (showForm ? resetForm() : setShowForm(true))}
                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-500/15 text-amber-400 text-xs font-medium hover:bg-amber-500/25 transition-colors"
                 >
                     <Plus className="w-3.5 h-3.5" />
@@ -183,9 +218,15 @@ export default memo(function RecurringManager({ onChanged }) {
                 </div>
             )}
 
-            {/* 新增表單 */}
+            {/* 新增 / 編輯表單 */}
             {showForm && (
                 <div className="bg-white/5 border border-amber-500/20 rounded-xl p-4 space-y-3">
+                    {editingId && (
+                        <div className="flex items-center gap-1.5 text-cyan-400 text-xs font-medium">
+                            <Pencil className="w-3.5 h-3.5" />
+                            編輯「{formName}」— 已入帳的記錄不會變動，僅影響之後的入帳
+                        </div>
+                    )}
                     {/* 類型切換 */}
                     <div className="flex bg-white/5 rounded-xl p-1">
                         <button
@@ -280,7 +321,7 @@ export default memo(function RecurringManager({ onChanged }) {
 
                     <div className="flex gap-2">
                         <button
-                            onClick={() => setShowForm(false)}
+                            onClick={resetForm}
                             className="flex-1 py-2.5 rounded-xl bg-white/5 text-white/40 text-sm hover:bg-white/10 transition-colors"
                         >
                             取消
@@ -290,7 +331,7 @@ export default memo(function RecurringManager({ onChanged }) {
                             disabled={!formName.trim() || !formAmount || Number(formAmount) <= 0}
                             className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white text-sm font-medium disabled:opacity-30 hover:opacity-90 transition-opacity"
                         >
-                            儲存項目
+                            {editingId ? '更新項目' : '儲存項目'}
                         </button>
                     </div>
                 </div>
