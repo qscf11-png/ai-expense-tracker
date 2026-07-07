@@ -71,15 +71,24 @@ export default memo(function Dashboard() {
         );
     };
 
-    // 依分類篩選（空 = 全部）
+    // 收支總覽（收入不受分類篩選影響）
+    const incomeSummary = useMemo(() => {
+        const income = expenses.filter((e) => e.type === 'income').reduce((s, e) => s + e.amount, 0);
+        const expense = expenses.filter((e) => e.type !== 'income').reduce((s, e) => s + e.amount, 0);
+        return { income, expense, balance: income - expense };
+    }, [expenses]);
+
+    // 依分類篩選（空 = 全部），分析僅計支出
     const filteredExpenses = useMemo(() => {
-        if (selectedCats.length === 0) return expenses;
-        return expenses.filter((e) => selectedCats.includes(e.category));
+        const onlyExpenses = expenses.filter((e) => e.type !== 'income');
+        if (selectedCats.length === 0) return onlyExpenses;
+        return onlyExpenses.filter((e) => selectedCats.includes(e.category));
     }, [expenses, selectedCats]);
 
     const filteredPrevExpenses = useMemo(() => {
-        if (selectedCats.length === 0) return prevExpenses;
-        return prevExpenses.filter((e) => selectedCats.includes(e.category));
+        const onlyExpenses = prevExpenses.filter((e) => e.type !== 'income');
+        if (selectedCats.length === 0) return onlyExpenses;
+        return onlyExpenses.filter((e) => selectedCats.includes(e.category));
     }, [prevExpenses, selectedCats]);
 
     // 分析數據
@@ -220,6 +229,29 @@ export default memo(function Dashboard() {
                     })}
                 </div>
             </div>
+
+            {/* 收支總覽（期間內有收入時顯示） */}
+            {incomeSummary.income > 0 && (
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 backdrop-blur-sm">
+                    <div className="text-white/40 text-xs mb-3">💰 收支總覽</div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                        <div>
+                            <div className="text-white/30 text-[10px] mb-1">收入</div>
+                            <div className="text-emerald-400 font-bold text-sm">+{formatCurrency(incomeSummary.income)}</div>
+                        </div>
+                        <div>
+                            <div className="text-white/30 text-[10px] mb-1">支出</div>
+                            <div className="text-red-400 font-bold text-sm">-{formatCurrency(incomeSummary.expense)}</div>
+                        </div>
+                        <div>
+                            <div className="text-white/30 text-[10px] mb-1">結餘</div>
+                            <div className={`font-bold text-sm ${incomeSummary.balance >= 0 ? 'text-cyan-400' : 'text-amber-400'}`}>
+                                {formatCurrency(incomeSummary.balance)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* 統計摘要卡片 */}
             <div className="grid grid-cols-2 gap-3">

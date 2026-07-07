@@ -27,6 +27,11 @@ const localDb = new Dexie('ExpenseTrackerDB');
 localDb.version(1).stores({
     expenses: '++id, date, category, createdAt',
 });
+// v2：records 加入 type 欄位（expense/income），新增 recurring 固定收支表
+localDb.version(2).stores({
+    expenses: '++id, date, category, createdAt, type',
+    recurring: '++id, type, enabled',
+});
 
 // ============================================================
 // 使用者狀態管理
@@ -47,6 +52,14 @@ export function setCurrentUser(userId) {
 function getExpensesCollection() {
     if (!currentUserId) throw new Error('未登入');
     return collection(firestore, 'users', currentUserId, 'expenses');
+}
+
+/**
+ * 取得使用者的 Firestore 固定收支集合路徑
+ */
+function getRecurringCollection() {
+    if (!currentUserId) throw new Error('未登入');
+    return collection(firestore, 'users', currentUserId, 'recurring');
 }
 
 // ============================================================
@@ -146,26 +159,158 @@ export async function deleteExpense(id) {
     }
 }
 
+// ============================================================
+// 固定收支（Recurring）CRUD 與自動入帳
+// ============================================================
+
 /**
- * 匯出所有資料為 JSON
+ * 新增固定收支項目
+ * @param {Object} item - { name, type: 'expense'|'income', amount, category, dayOfMonth }
  */
-export async function exportData() {
-    const expenses = await getAllExpenses();
-    return JSON.stringify(expenses, null, 2);
+export async function addRecurringItem(item) {
+    const data = {
+        ...item,
+        enabled: true,
+        lastApplied: null,
+        createdAt: new Date().toISOString(),
+    };
+    if (currentUserId) {
+        const docRef = await addDoc(getRecurringCollection(), data);
+        return docRef.id;
+    } else {
+        return await localDb.recurring.add(data);
+    }
 }
 
 /**
- * 匯入 JSON 資料
+ * 取得所有固定收支項目
+ */
+export async function getRecurringItems() {
+    if (currentUserId) {
+        const snapshot = await getDocs(getRecurringCollection());
+        return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+    } else {
+        return await localDb.recurring.toArray();
+    }
+}
+
+/**
+ * 更新固定收支項目
+ */
+export async function updateRecurringItem(id, updates) {
+    if (currentUserId) {
+        const docRef = doc(firestore, 'users', currentUserId, 'recurring', id);
+        await updateDoc(docRef, updates);
+    } else {
+        await localDb.recurring.update(id, updates);
+    }
+}
+
+/**
+ * 刪除固定收支項目
+ */
+export async function deleteRecurringItem(id) {
+    if (currentUserId) {
+        const docRef = doc(firestore, 'users', currentUserId, 'recurring', id);
+        await deleteDoc(docRef);
+    } else {
+        await localDb.recurring.delete(id);
+    }
+}
+
+/** 取得 YYYY-MM 的下一個月 */
+function nextMonth(ym) {
+    const [y, m] = ym.split('-').map(Number);
+    return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+}
+
+/** 取得某月排程日期（超過月底則取月底，如 2 月 31 號 → 2/28） */
+function scheduledDateFor(ym, dayOfMonth) {
+    const [y, m] = ym.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    const day = Math.min(dayOfMonth, lastDay);
+    return `${ym}-${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * 自動入帳：檢查所有啟用的固定收支項目，補記到期未記錄的月份
+ * 應在 App 啟動時呼叫
+ * @returns {number} 本次自動記錄的筆數
+ */
+export async function applyRecurringItems() {
+    const items = await getRecurringItems();
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const currentMonth = todayStr.slice(0, 7);
+    let appliedCount = 0;
+
+    for (const item of items) {
+        if (!item.enabled) continue;
+
+        // 從上次入帳的下一個月開始補記；從未入帳則從建立當月開始
+        let cursor = item.lastApplied
+            ? nextMonth(item.lastApplied)
+            : (item.createdAt || todayStr).slice(0, 7);
+        let last = item.lastApplied;
+
+        while (cursor <= currentMonth) {
+            const scheduled = scheduledDateFor(cursor, item.dayOfMonth);
+            if (scheduled > todayStr) break; // 本月排程日尚未到
+
+            await addExpense({
+                amount: item.amount,
+                category: item.category,
+                item: item.name,
+                note: item.type === 'income' ? '🔁 固定收入' : '🔁 固定支出',
+                date: scheduled,
+                type: item.type,
+                recurringId: item.id,
+            });
+            last = cursor;
+            appliedCount++;
+            cursor = nextMonth(cursor);
+        }
+
+        if (last !== item.lastApplied) {
+            await updateRecurringItem(item.id, { lastApplied: last });
+        }
+    }
+    return appliedCount;
+}
+
+// ============================================================
+// 匯出 / 匯入
+// ============================================================
+
+/**
+ * 匯出所有資料為 JSON（v2 格式：含收支記錄與固定項目定義）
+ */
+export async function exportData() {
+    const records = await getAllExpenses();
+    const recurring = await getRecurringItems();
+    return JSON.stringify({
+        version: 2,
+        exportedAt: new Date().toISOString(),
+        records,
+        recurring,
+    }, null, 2);
+}
+
+/**
+ * 匯入 JSON 資料（相容舊版純陣列格式與 v2 物件格式）
  */
 export async function importData(jsonString) {
-    const data = JSON.parse(jsonString);
+    const parsed = JSON.parse(jsonString);
+    // 舊格式為純陣列；v2 格式為 { records, recurring }
+    const records = Array.isArray(parsed) ? parsed : (parsed.records || []);
+    const recurring = Array.isArray(parsed) ? [] : (parsed.recurring || []);
 
     if (currentUserId) {
         // Firestore 批次寫入（每批最多 500 筆）
         const batchSize = 500;
-        for (let i = 0; i < data.length; i += batchSize) {
+        for (let i = 0; i < records.length; i += batchSize) {
             const batch = writeBatch(firestore);
-            const chunk = data.slice(i, i + batchSize);
+            const chunk = records.slice(i, i + batchSize);
             chunk.forEach((item) => {
                 const { id: _id, ...rest } = item;
                 const docRef = doc(getExpensesCollection());
@@ -173,9 +318,40 @@ export async function importData(jsonString) {
             });
             await batch.commit();
         }
+        for (const item of recurring) {
+            const { id: _id, ...rest } = item;
+            await addDoc(getRecurringCollection(), rest);
+        }
     } else {
-        await localDb.expenses.bulkAdd(data.map(({ id: _id, ...rest }) => rest));
+        await localDb.expenses.bulkAdd(records.map(({ id: _id, ...rest }) => rest));
+        if (recurring.length > 0) {
+            await localDb.recurring.bulkAdd(recurring.map(({ id: _id, ...rest }) => rest));
+        }
     }
+}
+
+/**
+ * 匯出所有收支記錄為 CSV（含 BOM，Excel 可直接開啟）
+ */
+export async function exportCSV() {
+    const records = await getAllExpenses();
+    const header = ['日期', '類型', '分類', '品項', '金額(TWD)', '備註', '原始輸入', '建立時間'];
+    const rows = records.map((r) => [
+        r.date,
+        r.type === 'income' ? '收入' : '支出',
+        r.category || '',
+        r.item || '',
+        r.amount,
+        r.note || '',
+        r.rawText || '',
+        r.createdAt || '',
+    ]);
+    const escape = (v) => {
+        const s = String(v ?? '');
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [header, ...rows].map((row) => row.map(escape).join(',')).join('\r\n');
+    return '﻿' + csv; // BOM 讓 Excel 正確辨識 UTF-8
 }
 
 /**
@@ -191,8 +367,16 @@ export async function clearAllData() {
             docs.slice(i, i + batchSize).forEach((d) => batch.delete(d.ref));
             await batch.commit();
         }
+        // 固定收支項目一併清除
+        const recurringSnapshot = await getDocs(getRecurringCollection());
+        for (let i = 0; i < recurringSnapshot.docs.length; i += batchSize) {
+            const batch = writeBatch(firestore);
+            recurringSnapshot.docs.slice(i, i + batchSize).forEach((d) => batch.delete(d.ref));
+            await batch.commit();
+        }
     } else {
         await localDb.expenses.clear();
+        await localDb.recurring.clear();
     }
 }
 
@@ -203,6 +387,15 @@ export async function migrateLocalToCloud() {
     if (!currentUserId) return 0;
 
     const localExpenses = await localDb.expenses.toArray();
+
+    // 固定收支項目也一併遷移
+    const localRecurring = await localDb.recurring.toArray();
+    for (const item of localRecurring) {
+        const { id: _id, ...rest } = item;
+        await addDoc(getRecurringCollection(), rest);
+    }
+    if (localRecurring.length > 0) await localDb.recurring.clear();
+
     if (localExpenses.length === 0) return 0;
 
     // 批次上傳到 Firestore

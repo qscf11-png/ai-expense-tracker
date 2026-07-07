@@ -33,7 +33,7 @@ export default memo(function ExpenseList() {
         setExpenses(data);
     };
 
-    // 按日分組
+    // 按日分組（支出與收入分開加總）
     const groupedByDate = useMemo(() => {
         const groups = {};
         expenses.forEach((e) => {
@@ -46,13 +46,16 @@ export default memo(function ExpenseList() {
             .map(([date, items]) => ({
                 date,
                 items,
-                total: items.reduce((sum, e) => sum + e.amount, 0),
+                total: items.filter((e) => e.type !== 'income').reduce((sum, e) => sum + e.amount, 0),
+                incomeTotal: items.filter((e) => e.type === 'income').reduce((sum, e) => sum + e.amount, 0),
             }));
     }, [expenses]);
 
-    // 月總額
-    const monthTotal = useMemo(() => {
-        return expenses.reduce((sum, e) => sum + e.amount, 0);
+    // 月總額（支出 / 收入 / 結餘）
+    const monthSummary = useMemo(() => {
+        const expense = expenses.filter((e) => e.type !== 'income').reduce((sum, e) => sum + e.amount, 0);
+        const income = expenses.filter((e) => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
+        return { expense, income, balance: income - expense };
     }, [expenses]);
 
     // 刪除記錄
@@ -93,8 +96,16 @@ export default memo(function ExpenseList() {
                         {selectedMonth.replace('-', ' 年 ')} 月
                     </div>
                     <div className="text-cyan-400 text-sm font-medium">
-                        {formatCurrency(monthTotal)}
+                        支出 {formatCurrency(monthSummary.expense)}
                     </div>
+                    {monthSummary.income > 0 && (
+                        <div className="flex items-center justify-center gap-2 text-xs mt-0.5">
+                            <span className="text-emerald-400">收入 +{formatCurrency(monthSummary.income)}</span>
+                            <span className={monthSummary.balance >= 0 ? 'text-white/50' : 'text-red-400'}>
+                                結餘 {formatCurrency(monthSummary.balance)}
+                            </span>
+                        </div>
+                    )}
                 </div>
                 <button
                     onClick={() => handleMonthChange(1)}
@@ -112,7 +123,7 @@ export default memo(function ExpenseList() {
                 </div>
             ) : (
                 <div className="space-y-3">
-                    {groupedByDate.map(({ date, items, total }) => (
+                    {groupedByDate.map(({ date, items, total, incomeTotal }) => (
                         <div
                             key={date}
                             className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden backdrop-blur-sm"
@@ -133,6 +144,11 @@ export default memo(function ExpenseList() {
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-2">
+                                    {incomeTotal > 0 && (
+                                        <span className="text-emerald-400 text-xs font-medium">
+                                            +{formatCurrency(incomeTotal)}
+                                        </span>
+                                    )}
                                     <span className="text-cyan-400 font-bold">
                                         {formatCurrency(total)}
                                     </span>
@@ -150,6 +166,7 @@ export default memo(function ExpenseList() {
                                     {items.map((expense) => {
                                         const cat = getCategoryById(expense.category);
                                         const isExpanded = expandedItemId === expense.id;
+                                        const isIncome = expense.type === 'income';
                                         return (
                                             <div key={expense.id}>
                                                 {/* 主要行 — 點擊展開細節 */}
@@ -170,8 +187,8 @@ export default memo(function ExpenseList() {
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-white font-medium">
-                                                            {formatCurrency(expense.amount)}
+                                                        <span className={`font-medium ${isIncome ? 'text-emerald-400' : 'text-white'}`}>
+                                                            {isIncome ? '+' : ''}{formatCurrency(expense.amount)}
                                                         </span>
                                                         <ChevronDown
                                                             className={`w-3.5 h-3.5 text-white/20 transition-transform ${isExpanded ? 'rotate-180' : ''}`}

@@ -6,7 +6,7 @@ import ExpenseList from './components/ExpenseList';
 import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
 import PWAUpdater from './components/PWAUpdater';
-import { addExpense, setCurrentUser, migrateLocalToCloud } from './services/db';
+import { addExpense, setCurrentUser, migrateLocalToCloud, applyRecurringItems } from './services/db';
 import { formatCurrency } from './utils/formatters';
 import { getExpensesByDate } from './services/db';
 import { getToday } from './utils/dateUtils';
@@ -35,14 +35,27 @@ export default function App() {
   useEffect(() => {
     setCurrentUser(user ? user.uid : null);
 
-    // 登入後嘗試遷移本機資料到雲端
-    if (user) {
-      migrateLocalToCloud().then((count) => {
+    const init = async () => {
+      // 登入後嘗試遷移本機資料到雲端
+      if (user) {
+        const count = await migrateLocalToCloud();
         if (count > 0) {
           showToast(`☁️ 已將 ${count} 筆本機資料同步到雲端`);
         }
-      });
-    }
+      }
+      // 檢查固定收支項目，自動補記到期的月份
+      try {
+        const applied = await applyRecurringItems();
+        if (applied > 0) {
+          showToast(`🔁 已自動記錄 ${applied} 筆固定收支`);
+          setListKey((k) => k + 1);
+          loadTodayTotal();
+        }
+      } catch {
+        // 自動入帳失敗不影響 App 使用
+      }
+    };
+    init();
   }, [user]);
 
   // 載入 API Key（監聽 storage 事件 + 自訂事件，不再輪詢）
@@ -63,11 +76,15 @@ export default function App() {
     };
   }, []);
 
-  // 載入今天的支出總額
+  // 載入今天的支出總額（收入不計入）
   const loadTodayTotal = useCallback(async () => {
     try {
       const today = await getExpensesByDate(getToday());
-      setTodayTotal(today.reduce((sum, e) => sum + e.amount, 0));
+      setTodayTotal(
+        today
+          .filter((e) => e.type !== 'income')
+          .reduce((sum, e) => sum + e.amount, 0)
+      );
     } catch {
       setTodayTotal(0);
     }

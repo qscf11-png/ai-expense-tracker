@@ -1,13 +1,14 @@
 import { useState, useEffect, memo } from 'react';
-import { PlusCircle, Languages } from 'lucide-react';
-import { CATEGORIES } from '../utils/categories';
+import { PlusCircle, Languages, TrendingDown, TrendingUp } from 'lucide-react';
+import { CATEGORIES, INCOME_CATEGORIES } from '../utils/categories';
 import { getToday } from '../utils/dateUtils';
 import { convertToTWD, getCurrencyLabel } from '../utils/exchangeRate';
 
 /**
- * 手動記帳表單
+ * 手動記帳表單（支出 / 收入）
  */
 export default memo(function ManualInput({ onSave }) {
+    const [entryType, setEntryType] = useState('expense');
     const [amount, setAmount] = useState('');
     const [currency, setCurrency] = useState('TWD');
     const [convertedPreview, setConvertedPreview] = useState(null);
@@ -17,6 +18,14 @@ export default memo(function ManualInput({ onSave }) {
     const [date, setDate] = useState(getToday());
 
     const currencies = ['TWD', 'JPY', 'USD', 'CNY', 'THB', 'VND'];
+    const isIncome = entryType === 'income';
+    const activeCategories = isIncome ? INCOME_CATEGORIES : CATEGORIES;
+
+    // 切換收入/支出時重置分類為對應清單的第一項
+    const handleTypeSwitch = (type) => {
+        setEntryType(type);
+        setCategory(type === 'income' ? INCOME_CATEGORIES[0].id : CATEGORIES[0].id);
+    };
 
     // 處理即時換算預覽（500ms 防抖，避免每次按鍵都打 API）
     useEffect(() => {
@@ -47,9 +56,10 @@ export default memo(function ManualInput({ onSave }) {
         onSave({
             amount: finalAmount,
             category,
-            item: item || CATEGORIES.find((c) => c.id === category)?.name || '消費',
+            item: item || activeCategories.find((c) => c.id === category)?.name || (isIncome ? '收入' : '消費'),
             note: finalNote,
             date,
+            type: entryType,
         });
 
         // 重置表單
@@ -57,11 +67,37 @@ export default memo(function ManualInput({ onSave }) {
         setCurrency('TWD');
         setItem('');
         setNote('');
-        setCategory('food');
+        setCategory(isIncome ? INCOME_CATEGORIES[0].id : CATEGORIES[0].id);
     };
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4 px-1">
+            {/* 收入/支出切換 */}
+            <div className="flex bg-white/5 rounded-2xl p-1 border border-white/10">
+                <button
+                    type="button"
+                    onClick={() => handleTypeSwitch('expense')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold transition-all ${!isIncome
+                        ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg'
+                        : 'text-white/50 hover:text-white/70'
+                        }`}
+                >
+                    <TrendingDown className="w-4 h-4" />
+                    支出
+                </button>
+                <button
+                    type="button"
+                    onClick={() => handleTypeSwitch('income')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-bold transition-all ${isIncome
+                        ? 'bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-lg'
+                        : 'text-white/50 hover:text-white/70'
+                        }`}
+                >
+                    <TrendingUp className="w-4 h-4" />
+                    收入
+                </button>
+            </div>
+
             {/* 金額 */}
             <div>
                 <div className="flex items-center justify-between mb-1.5">
@@ -113,7 +149,7 @@ export default memo(function ManualInput({ onSave }) {
             <div>
                 <label className="text-white/50 text-xs font-medium block mb-2">分類</label>
                 <div className="grid grid-cols-4 gap-2">
-                    {CATEGORIES.map((cat) => (
+                    {activeCategories.map((cat) => (
                         <button
                             key={cat.id}
                             type="button"
@@ -169,10 +205,13 @@ export default memo(function ManualInput({ onSave }) {
             <button
                 type="submit"
                 disabled={!amount || Number(amount) <= 0}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold text-base disabled:opacity-30 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all"
+                className={`w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-white font-bold text-base disabled:opacity-30 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all ${isIncome
+                    ? 'bg-gradient-to-r from-emerald-500 to-green-600'
+                    : 'bg-gradient-to-r from-cyan-500 to-blue-600'
+                    }`}
             >
                 <PlusCircle className="w-5 h-5" />
-                新增記錄
+                {isIncome ? '新增收入' : '新增記錄'}
             </button>
         </form>
     );

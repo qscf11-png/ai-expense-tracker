@@ -10,11 +10,24 @@ export const CATEGORIES = [
     { id: 'other', name: '其他', emoji: '💼', color: '#6b7280' },
 ];
 
+// 收入分類定義
+export const INCOME_CATEGORIES = [
+    { id: 'salary', name: '薪資', emoji: '💰', color: '#10b981' },
+    { id: 'bonus', name: '獎金', emoji: '🎁', color: '#f59e0b' },
+    { id: 'investment', name: '投資', emoji: '📈', color: '#06b6d4' },
+    { id: 'side_job', name: '副業', emoji: '💻', color: '#a855f7' },
+    { id: 'other_income', name: '其他收入', emoji: '💵', color: '#6b7280' },
+];
+
 /**
- * 根據分類 ID 取得分類資訊
+ * 根據分類 ID 取得分類資訊（支出與收入分類皆可查詢）
  */
 export function getCategoryById(id) {
-    return CATEGORIES.find((c) => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
+    return (
+        CATEGORIES.find((c) => c.id === id) ||
+        INCOME_CATEGORIES.find((c) => c.id === id) ||
+        CATEGORIES[CATEGORIES.length - 1]
+    );
 }
 
 /**

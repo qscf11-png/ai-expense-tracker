@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Key, Download, Upload, Trash2, CheckCircle2, XCircle, Shield, LogOut, LogIn, Cloud, Smartphone, Eye, EyeOff, Users, User, Cpu, ChevronDown, Zap, Sparkles, RefreshCw } from 'lucide-react';
 import { validateApiKey, fetchAvailableModels, getSelectedModel, setSelectedModel, GAISF_MODELS, PROVIDERS } from '../services/gemini';
-import { exportData, importData, clearAllData } from '../services/db';
+import { exportData, exportCSV, importData, clearAllData } from '../services/db';
 import { signInWithGoogle, logOut } from '../services/auth';
+import RecurringManager from './RecurringManager';
 
 // 建置時間（由 vite define 注入），用來在 App 內顯示目前版本，方便判斷是否已更新到最新
 const BUILD_LABEL = (() => {
@@ -176,18 +177,34 @@ export default function Settings({ user }) {
         showMessage('已登出，資料將儲存在本機');
     };
 
-    // 匯出資料
+    // 下載檔案共用邏輯
+    const downloadFile = (content, filename, mimeType) => {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    // 匯出資料（JSON — 完整備份，含固定收支設定）
     const handleExport = async () => {
         try {
             const json = await exportData();
-            const blob = new Blob([json], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `expense-data-${new Date().toISOString().slice(0, 10)}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
+            downloadFile(json, `expense-data-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
             showMessage('✅ 資料匯出成功');
+        } catch (err) {
+            showMessage('❌ 匯出失敗');
+        }
+    };
+
+    // 匯出資料（CSV — Excel 可直接開啟分析）
+    const handleExportCSV = async () => {
+        try {
+            const csv = await exportCSV();
+            downloadFile(csv, `expense-data-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8');
+            showMessage('✅ CSV 匯出成功');
         } catch (err) {
             showMessage('❌ 匯出失敗');
         }
@@ -535,6 +552,11 @@ export default function Settings({ user }) {
                 </div>
             )}
 
+            {/* 固定收支管理 */}
+            <RecurringManager onChanged={(applied) => {
+                if (applied > 0) showMessage(`🔁 已自動記錄 ${applied} 筆固定收支`);
+            }} />
+
             {/* 資料管理 */}
             <div className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur-sm space-y-3">
                 <div className="text-white font-medium mb-2">資料管理</div>
@@ -545,8 +567,19 @@ export default function Settings({ user }) {
                 >
                     <Download className="w-5 h-5 text-cyan-400" />
                     <div>
-                        <div className="text-white text-sm font-medium">匯出資料</div>
-                        <div className="text-white/30 text-xs">下載所有消費記錄為 JSON 檔</div>
+                        <div className="text-white text-sm font-medium">匯出完整備份（JSON）</div>
+                        <div className="text-white/30 text-xs">含所有收支記錄與固定收支設定，可再匯入還原</div>
+                    </div>
+                </button>
+
+                <button
+                    onClick={handleExportCSV}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 transition-colors text-left"
+                >
+                    <Download className="w-5 h-5 text-emerald-400" />
+                    <div>
+                        <div className="text-white text-sm font-medium">匯出報表（CSV）</div>
+                        <div className="text-white/30 text-xs">Excel 可直接開啟，適合年度收支分析</div>
                     </div>
                 </button>
 
