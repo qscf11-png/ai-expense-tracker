@@ -125,6 +125,19 @@ export default memo(function ManualInput({ onSave }) {
                 </div>
             </div>
 
+            {/* 送出按鈕（置頂，填完金額即可送出，不需捲動） */}
+            <button
+                type="submit"
+                disabled={!amount || Number(amount) <= 0}
+                className={`w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-white font-bold text-base disabled:opacity-30 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all ${isIncome
+                    ? 'bg-gradient-to-r from-emerald-500 to-green-600'
+                    : 'bg-gradient-to-r from-cyan-500 to-blue-600'
+                    }`}
+            >
+                <PlusCircle className="w-5 h-5" />
+                {isIncome ? '新增收入' : '新增記錄'}
+            </button>
+
             {/* 幣種選擇 */}
             <div>
                 <label className="text-white/50 text-xs font-medium block mb-2">幣種</label>
@@ -201,18 +214,6 @@ export default memo(function ManualInput({ onSave }) {
                 />
             </div>
 
-            {/* 送出按鈕 */}
-            <button
-                type="submit"
-                disabled={!amount || Number(amount) <= 0}
-                className={`w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-white font-bold text-base disabled:opacity-30 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98] transition-all ${isIncome
-                    ? 'bg-gradient-to-r from-emerald-500 to-green-600'
-                    : 'bg-gradient-to-r from-cyan-500 to-blue-600'
-                    }`}
-            >
-                <PlusCircle className="w-5 h-5" />
-                {isIncome ? '新增收入' : '新增記錄'}
-            </button>
         </form>
     );
 })

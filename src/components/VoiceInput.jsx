@@ -293,6 +293,24 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
                         )}
                     </div>
 
+                    {/* 確認/取消按鈕（置頂，不需捲動即可操作） */}
+                    <div className="flex gap-3">
+                        <button
+                            onClick={handleCancel}
+                            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 text-white/60 hover:bg-white/10 transition-colors"
+                        >
+                            <X className="w-4 h-4" />
+                            取消
+                        </button>
+                        <button
+                            onClick={handleConfirm}
+                            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-medium hover:opacity-90 transition-opacity"
+                        >
+                            <Check className="w-4 h-4" />
+                            確認記帳
+                        </button>
+                    </div>
+
                     {/* 語音原文 */}
                     <p className="text-white/50 text-xs italic">「{transcript}」</p>
 
@@ -366,23 +384,6 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
                         )}
                     </div>
 
-                    {/* 確認/取消按鈕 */}
-                    <div className="flex gap-3 pt-2">
-                        <button
-                            onClick={handleCancel}
-                            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 text-white/60 hover:bg-white/10 transition-colors"
-                        >
-                            <X className="w-4 h-4" />
-                            取消
-                        </button>
-                        <button
-                            onClick={handleConfirm}
-                            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-medium hover:opacity-90 transition-opacity"
-                        >
-                            <Check className="w-4 h-4" />
-                            確認記帳
-                        </button>
-                    </div>
                 </div>
             )}
 
