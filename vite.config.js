@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// 部署環境的 base 路徑：Vercel 服務於根路徑，GitHub Pages 服務於 /ai-expense-tracker/
+const BASE = process.env.VERCEL ? '/' : '/ai-expense-tracker/';
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
@@ -15,8 +18,8 @@ export default defineConfig({
         name: 'AI 語音記帳工具',
         short_name: 'AI記帳',
         description: '語音智慧記帳，自動分類消費',
-        start_url: '/ai-expense-tracker/',
-        scope: '/ai-expense-tracker/',
+        start_url: BASE,
+        scope: BASE,
         display: 'standalone',
         background_color: '#020617',
         theme_color: '#020617',
@@ -62,7 +65,7 @@ export default defineConfig({
     // 注入建置時間，App 內顯示版本用（每次 build 都會變）
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
-  base: '/ai-expense-tracker/',
+  base: BASE,
   server: {
     proxy: {
       // 達哥 GAISF API 反向代理（解決 CORS + SSL）

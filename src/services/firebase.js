@@ -3,10 +3,14 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 
+// 在 Vercel 網域上改用「同網域」authDomain（vercel.json 已把 /__/auth/* 反向代理到 Firebase）
+// 讓 iOS PWA（加入主畫面）內的登入轉址流程可靠運作；GitHub Pages 版維持原本設定
+const isVercel = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app');
+
 // Firebase 設定 — 來自 Firebase Console
 const firebaseConfig = {
     apiKey: 'AIzaSyDA-868ZUbI5rd6eN8YqIznS27Ncdqjjak',
-    authDomain: 'tk-private.firebaseapp.com',
+    authDomain: isVercel ? window.location.hostname : 'tk-private.firebaseapp.com',
     databaseURL: 'https://tk-private-default-rtdb.firebaseio.com',
     projectId: 'tk-private',
     storageBucket: 'tk-private.firebasestorage.app',

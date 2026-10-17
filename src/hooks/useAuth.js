@@ -1,6 +1,6 @@
 // React Hook：管理使用者登入狀態
 import { useState, useEffect } from 'react';
-import { onAuthChange } from '../services/auth';
+import { onAuthChange, handleRedirectResult } from '../services/auth';
 
 /**
  * 使用者認證狀態 Hook
@@ -11,6 +11,11 @@ export function useAuth() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        // 接收 PWA 轉址登入返回的結果（無待處理結果時安靜略過）
+        handleRedirectResult().catch((err) => {
+            console.warn('轉址登入結果處理失敗:', err.message);
+        });
+
         const unsubscribe = onAuthChange((firebaseUser) => {
             setUser(firebaseUser);
             setLoading(false);
