@@ -24,7 +24,13 @@ export function useAuth() {
             setLoading(false);
         });
 
-        return () => unsubscribe();
+        // 保險：auth 初始化異常卡住時，8 秒後仍放行進入 App（以未登入狀態）
+        const failsafe = setTimeout(() => setLoading(false), 8000);
+
+        return () => {
+            unsubscribe();
+            clearTimeout(failsafe);
+        };
     }, []);
 
     return { user, loading, authError };

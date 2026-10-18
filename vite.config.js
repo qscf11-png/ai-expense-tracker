@@ -43,6 +43,9 @@ export default defineConfig({
       workbox: {
         // 快取策略：預先快取核心資源
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // Firebase 登入路徑（/__/auth/*、/__/firebase/*）不可被 Service Worker
+        // 攔截成 index.html，否則轉址登入的結果解析會永遠卡住
+        navigateFallbackDenylist: [/^\/__\//],
         // 執行時快取 API 回應
         runtimeCaching: [
           {
