@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Key, Download, Upload, Trash2, CheckCircle2, XCircle, Shield, LogOut, LogIn, Cloud, Smartphone, Eye, EyeOff, Users, User, Cpu, ChevronDown, Zap, Sparkles, RefreshCw } from 'lucide-react';
 import { validateApiKey, fetchAvailableModels, getSelectedModel, setSelectedModel, GAISF_MODELS, PROVIDERS } from '../services/gemini';
 import { exportData, exportCSV, importData, clearAllData } from '../services/db';
-import { signInWithGoogle, logOut } from '../services/auth';
+import { signInWithGoogle, logOut, isStandalone } from '../services/auth';
 import RecurringManager from './RecurringManager';
 
 // 建置時間（由 vite define 注入），用來在 App 內顯示目前版本，方便判斷是否已更新到最新
@@ -657,7 +657,10 @@ export default function Settings({ user }) {
             <div className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur-sm">
                 <div className="text-white font-medium mb-2">關於</div>
                 <div className="text-white/40 text-xs space-y-1">
-                    <p>AI 語音記帳工具 v2.0</p>
+                    <p>AI 語音記帳工具 v2.1</p>
+                    <p className="text-cyan-400/70 font-mono">
+                        {window.location.hostname} · {isStandalone() ? '📲 PWA 模式' : '🌐 瀏覽器模式'}
+                    </p>
                     <p>{user ? '☁️ 雲端同步模式 (Firestore)' : '📱 本機儲存模式 (IndexedDB)'}</p>
                     <p>語音辨識使用 Web Speech API</p>
                     <p>AI 分類使用 Google Gemini API（動態模型選擇）</p>

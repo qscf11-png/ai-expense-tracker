@@ -9,11 +9,14 @@ import { onAuthChange, handleRedirectResult } from '../services/auth';
 export function useAuth() {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [authError, setAuthError] = useState('');
 
     useEffect(() => {
         // 接收 PWA 轉址登入返回的結果（無待處理結果時安靜略過）
+        // 失敗時把錯誤浮出到 UI（PWA 裡看不到主控台）
         handleRedirectResult().catch((err) => {
             console.warn('轉址登入結果處理失敗:', err.message);
+            setAuthError(err.message);
         });
 
         const unsubscribe = onAuthChange((firebaseUser) => {
@@ -24,5 +27,5 @@ export function useAuth() {
         return () => unsubscribe();
     }, []);
 
-    return { user, loading };
+    return { user, loading, authError };
 }

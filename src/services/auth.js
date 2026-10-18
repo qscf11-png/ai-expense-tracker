@@ -43,7 +43,8 @@ export async function signInWithGoogle() {
             throw new Error('登入視窗被阻擋，請允許彈出視窗');
         }
         console.error('Google 登入失敗:', error);
-        throw new Error('登入失敗，請稍後再試');
+        // 顯示完整錯誤代碼，方便遠端診斷
+        throw new Error(`登入失敗（${error.code || error.message}）`);
     }
 }
 
@@ -57,7 +58,8 @@ export async function handleRedirectResult() {
         return result ? result.user : null;
     } catch (error) {
         console.error('轉址登入失敗:', error);
-        throw new Error('登入失敗，請再試一次');
+        // 顯示完整錯誤代碼，方便遠端診斷
+        throw new Error(`登入失敗（${error.code || error.message}）`);
     }
 }
 

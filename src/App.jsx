@@ -29,7 +29,12 @@ export default function App() {
   const [listKey, setListKey] = useState(0);
   const [loginLoading, setLoginLoading] = useState(false);
 
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, authError } = useAuth();
+
+  // 轉址登入失敗時顯示錯誤（PWA 模式下使用者看不到主控台）
+  useEffect(() => {
+    if (authError) showToast(`❌ ${authError}`);
+  }, [authError]);
 
   // 設定 Firestore 使用者身份
   useEffect(() => {
