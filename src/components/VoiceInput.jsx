@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, memo } from 'react';
 import { Mic, MicOff, Loader2, Check, X, Sparkles, Languages, Send, PenLine } from 'lucide-react';
-import { isSpeechSupported, createSpeechRecognition } from '../services/speech';
+import { isSpeechSupported, createSpeechRecognition, disposeRecognition } from '../services/speech';
 import { parseExpenseWithAI } from '../services/gemini';
 import { CATEGORIES } from '../utils/categories';
 import { getToday } from '../utils/dateUtils';
@@ -49,6 +49,14 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
         setParsed(null);
         setShowEditor(false);
 
+        // 先強制釋放上一次的辨識實例
+        // iOS 上舊實例未釋放會佔住語音引擎，第二筆語音會完全收不到聲音
+        disposeRecognition(recognitionRef.current);
+        recognitionRef.current = null;
+
+        // 追蹤本次是否已有錯誤，避免 onEnd 的「沒聽到聲音」提示蓋掉具體錯誤
+        const hadError = { current: false };
+
         try {
             recognitionRef.current = createSpeechRecognition({
                 onResult: (text) => {
@@ -66,10 +74,17 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
                 onInterim: (text) => {
                     setInterimText(text);
                 },
-                onEnd: () => {
+                onEnd: (hasResult) => {
                     setIsListening(false);
+                    // 完全沒辨識到內容且沒有其他錯誤時，提示使用者重試
+                    if (!hasResult && !hadError.current) {
+                        setError('沒有聽到語音內容，請再按一次麥克風重試');
+                    }
+                    // 本次辨識已結束，釋放實例
+                    recognitionRef.current = null;
                 },
                 onError: (err) => {
+                    hadError.current = true;
                     setIsListening(false);
                     if (err === 'not-allowed') {
                         setError('請允許麥克風權限');

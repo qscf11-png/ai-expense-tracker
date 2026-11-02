@@ -77,7 +77,13 @@ export function createSpeechRecognition({ onResult, onInterim, onEnd, onError })
         if (finalText && onResult) {
             onResult(finalText);
         }
-        if (onEnd) onEnd();
+        // 回報是否有辨識到內容，讓 UI 能在沒聲音時提示使用者
+        if (onEnd) onEnd(!!finalText);
+        // 解除所有事件並釋放實例，避免 iOS 語音引擎被舊實例佔住
+        // （不釋放的話，第二次辨識會收不到任何聲音）
+        recognition.onresult = null;
+        recognition.onend = null;
+        recognition.onerror = null;
     };
 
     recognition.onerror = (event) => {
@@ -89,4 +95,20 @@ export function createSpeechRecognition({ onResult, onInterim, onEnd, onError })
     };
 
     return recognition;
+}
+
+/**
+ * 強制釋放語音辨識實例（開始新的辨識前呼叫）
+ * iOS 上舊實例未釋放會佔住語音引擎，導致下一次辨識收不到聲音
+ */
+export function disposeRecognition(recognition) {
+    if (!recognition) return;
+    try {
+        recognition.onresult = null;
+        recognition.onend = null;
+        recognition.onerror = null;
+        recognition.abort();
+    } catch {
+        // 已結束的實例 abort 會丟錯，忽略即可
+    }
 }

@@ -657,7 +657,7 @@ export default function Settings({ user }) {
             <div className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur-sm">
                 <div className="text-white font-medium mb-2">關於</div>
                 <div className="text-white/40 text-xs space-y-1">
-                    <p>AI 語音記帳工具 v2.1</p>
+                    <p>AI 語音記帳工具 v2.2</p>
                     <p className="text-cyan-400/70 font-mono">
                         {window.location.hostname} · {isStandalone() ? '📲 PWA 模式' : '🌐 瀏覽器模式'}
                     </p>
