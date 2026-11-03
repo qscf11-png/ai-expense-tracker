@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback, memo } from 'react';
-import { Mic, MicOff, Loader2, Check, X, Sparkles, Languages, Send, PenLine } from 'lucide-react';
+import { useState, useRef, memo } from 'react';
+import { Mic, MicOff, Loader2, Check, X, Sparkles, Languages, Send, PenLine, Keyboard, RotateCw } from 'lucide-react';
 import { isSpeechSupported, createSpeechRecognition, disposeRecognition } from '../services/speech';
 import { parseExpenseWithAI } from '../services/gemini';
 import { CATEGORIES } from '../utils/categories';
@@ -35,8 +35,110 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
     const currencies = ['AUTO', 'JPY', 'USD', 'CNY', 'THB', 'VND'];
     const speechSupported = isSpeechSupported();
 
+    // 診斷紀錄：記下每次語音辨識經過哪些事件，第二筆失敗時可看出卡在哪一步
+    const [debugLog, setDebugLog] = useState([]);
+    const [showDebug, setShowDebug] = useState(false);
+    const [speechFailed, setSpeechFailed] = useState(false);
+    const [typedText, setTypedText] = useState('');
+    const sessionRef = useRef(0);
+    const watchdogRef = useRef(null);
+
+    const log = (msg) => {
+        const t = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+        setDebugLog((prev) => [...prev.slice(-39), `#${sessionRef.current} ${t} ${msg}`]);
+    };
+
+    const clearWatchdog = () => {
+        clearTimeout(watchdogRef.current);
+        watchdogRef.current = null;
+    };
+
+    // 啟動一次辨識；isRetry 表示這是看門狗觸發的自動重試
+    const beginSession = (isRetry) => {
+        // 先強制釋放上一次的辨識實例，避免佔住 iOS 語音引擎
+        disposeRecognition(recognitionRef.current);
+        recognitionRef.current = null;
+        clearWatchdog();
+
+        // 追蹤本次是否已有錯誤，避免 onEnd 的「沒聽到聲音」提示蓋掉具體錯誤
+        const hadError = { current: false };
+        let alive = false;
+
+        try {
+            const rec = createSpeechRecognition({
+                onResult: (text) => {
+                    // 語音完全結束才觸發，直接送 AI 解析
+                    setTranscript(text);
+                    setEditingText(text);
+                    setInterimText('');
+                    setIsListening(false);
+                    setSpeechFailed(false);
+                    if (apiKey) {
+                        processWithAI(text);
+                    } else {
+                        setError('請先在設定頁面輸入 API Key');
+                    }
+                },
+                onInterim: (text) => {
+                    alive = true;
+                    setInterimText(text);
+                },
+                onAudioStart: () => {
+                    alive = true;
+                },
+                onEnd: (hasResult) => {
+                    clearWatchdog();
+                    setIsListening(false);
+                    if (!hasResult && !hadError.current) {
+                        setSpeechFailed(true);
+                        setError('沒有聽到語音內容。請再按一次麥克風，或改用下方鍵盤輸入');
+                    }
+                    if (recognitionRef.current === rec) recognitionRef.current = null;
+                },
+                onError: (err) => {
+                    hadError.current = true;
+                    clearWatchdog();
+                    setIsListening(false);
+                    setSpeechFailed(true);
+                    if (err === 'not-allowed') {
+                        setError('請允許麥克風權限');
+                    } else {
+                        setError(`語音辨識錯誤: ${err}`);
+                    }
+                },
+                onDebug: log,
+            });
+
+            recognitionRef.current = rec;
+            rec.start();
+            log(isRetry ? '重試 start()' : 'start()');
+            setIsListening(true);
+
+            // 看門狗：4 秒內麥克風沒開始收音，視為語音引擎卡住
+            watchdogRef.current = setTimeout(() => {
+                if (alive || recognitionRef.current !== rec) return;
+                log('看門狗：4 秒內沒有開始收音');
+                disposeRecognition(rec);
+                recognitionRef.current = null;
+                if (!isRetry) {
+                    // 自動用全新實例再試一次
+                    setTimeout(() => beginSession(true), 400);
+                } else {
+                    setIsListening(false);
+                    setSpeechFailed(true);
+                    setError('語音引擎沒有回應。可改用下方鍵盤輸入，或點「重新載入」');
+                }
+            }, 4000);
+        } catch (err) {
+            log(`start() 例外：${err.message}`);
+            setIsListening(false);
+            setSpeechFailed(true);
+            setError(`語音啟動失敗：${err.message}`);
+        }
+    };
+
     // 開始錄音
-    const startListening = useCallback(() => {
+    const startListening = () => {
         if (!speechSupported) {
             setError('此瀏覽器不支援語音辨識，請使用 Chrome');
             return;
@@ -48,65 +150,43 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
         setInterimText('');
         setParsed(null);
         setShowEditor(false);
-
-        // 先強制釋放上一次的辨識實例
-        // iOS 上舊實例未釋放會佔住語音引擎，第二筆語音會完全收不到聲音
-        disposeRecognition(recognitionRef.current);
-        recognitionRef.current = null;
-
-        // 追蹤本次是否已有錯誤，避免 onEnd 的「沒聽到聲音」提示蓋掉具體錯誤
-        const hadError = { current: false };
-
-        try {
-            recognitionRef.current = createSpeechRecognition({
-                onResult: (text) => {
-                    // 語音完全結束才觸發，直接送 AI 解析
-                    setTranscript(text);
-                    setEditingText(text);
-                    setInterimText('');
-                    setIsListening(false);
-                    if (apiKey) {
-                        processWithAI(text);
-                    } else {
-                        setError('請先在設定頁面輸入 API Key');
-                    }
-                },
-                onInterim: (text) => {
-                    setInterimText(text);
-                },
-                onEnd: (hasResult) => {
-                    setIsListening(false);
-                    // 完全沒辨識到內容且沒有其他錯誤時，提示使用者重試
-                    if (!hasResult && !hadError.current) {
-                        setError('沒有聽到語音內容，請再按一次麥克風重試');
-                    }
-                    // 本次辨識已結束，釋放實例
-                    recognitionRef.current = null;
-                },
-                onError: (err) => {
-                    hadError.current = true;
-                    setIsListening(false);
-                    if (err === 'not-allowed') {
-                        setError('請允許麥克風權限');
-                    } else {
-                        setError(`語音辨識錯誤: ${err}`);
-                    }
-                },
-            });
-
-            recognitionRef.current.start();
-            setIsListening(true);
-        } catch (err) {
-            setError(err.message);
-        }
-    }, [speechSupported, apiKey]);
+        setSpeechFailed(false);
+        sessionRef.current += 1;
+        beginSession(false);
+    };
 
     // 停止錄音
-    const stopListening = useCallback(() => {
-        if (recognitionRef.current) {
-            recognitionRef.current.stop();
+    const stopListening = () => {
+        const rec = recognitionRef.current;
+        if (!rec) return;
+        log('手動 stop()');
+        rec.stop();
+        // 保險：stop 後 1.5 秒仍未結束，強制釋放，避免畫面卡在聆聽中
+        setTimeout(() => {
+            if (recognitionRef.current === rec) {
+                log('stop 後未結束，強制釋放');
+                disposeRecognition(rec);
+                recognitionRef.current = null;
+                clearWatchdog();
+                setIsListening(false);
+            }
+        }, 1500);
+    };
+
+    // 鍵盤輸入（可用 iOS 鍵盤上的麥克風聽寫，不受網頁語音辨識問題影響）
+    const handleTypedSubmit = () => {
+        const text = typedText.trim();
+        if (!text) return;
+        if (!apiKey) {
+            setError('請先在設定頁面輸入 API Key');
+            return;
         }
-    }, []);
+        setTranscript(text);
+        setEditingText(text);
+        setTypedText('');
+        setSpeechFailed(false);
+        processWithAI(text);
+    };
 
     // 手動修正文字後重新送 AI
     const handleResend = () => {
@@ -246,6 +326,35 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
                     )}
                 </button>
             </div>
+
+            {/* 鍵盤輸入：可直接打字，或用 iOS 鍵盤上的麥克風聽寫 */}
+            {!parsed && !isProcessing && !isListening && (
+                <div className="w-full max-w-sm">
+                    <div className={`flex gap-2 rounded-2xl p-1.5 border transition-colors ${speechFailed
+                        ? 'bg-amber-500/10 border-amber-500/40'
+                        : 'bg-white/5 border-white/10'
+                        }`}>
+                        <div className="flex items-center pl-2 text-white/30">
+                            <Keyboard className="w-4 h-4" />
+                        </div>
+                        <input
+                            type="text"
+                            value={typedText}
+                            onChange={(e) => setTypedText(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleTypedSubmit()}
+                            placeholder="或打字／用鍵盤麥克風說，例：晚餐 150"
+                            className="flex-1 min-w-0 bg-transparent px-1 py-2 text-white text-sm placeholder:text-white/25 focus:outline-none"
+                        />
+                        <button
+                            onClick={handleTypedSubmit}
+                            disabled={!typedText.trim()}
+                            className="px-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white disabled:opacity-30 transition-opacity"
+                        >
+                            <Send className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* 語音辨識結果 + 修正功能 */}
             {transcript && !parsed && !isProcessing && (
@@ -404,8 +513,36 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
 
             {/* 錯誤訊息 */}
             {error && (
-                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 w-full max-w-sm">
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 w-full max-w-sm space-y-2">
                     <p className="text-red-400 text-sm text-center">{error}</p>
+                    {speechFailed && (
+                        <button
+                            onClick={() => window.location.reload()}
+                            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/5 text-white/60 text-xs hover:bg-white/10 transition-colors"
+                        >
+                            <RotateCw className="w-3.5 h-3.5" />
+                            重新載入 App（重置語音引擎）
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* 診斷紀錄：語音失敗時可截圖回報 */}
+            {debugLog.length > 0 && (
+                <div className="w-full max-w-sm">
+                    <button
+                        onClick={() => setShowDebug(!showDebug)}
+                        className="text-white/20 text-[10px] hover:text-white/40 transition-colors"
+                    >
+                        🔧 語音診斷紀錄 {showDebug ? '▲' : '▼'}
+                    </button>
+                    {showDebug && (
+                        <div className="mt-2 bg-black/40 border border-white/10 rounded-lg p-2 font-mono text-[10px] text-white/50 space-y-0.5 max-h-60 overflow-y-auto">
+                            {debugLog.map((line, i) => (
+                                <div key={i}>{line}</div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
         </div>

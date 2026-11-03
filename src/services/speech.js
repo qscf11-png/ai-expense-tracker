@@ -16,11 +16,13 @@ export function isSpeechSupported() {
  * @param {Object} options
  * @param {Function} options.onResult - 辨識完成回呼（語音完全結束後才觸發）
  * @param {Function} options.onInterim - 中間結果回呼（即時顯示辨識文字）
- * @param {Function} options.onEnd - 辨識結束回呼
+ * @param {Function} options.onAudioStart - 麥克風真正開始收音時回呼
+ * @param {Function} options.onEnd - 辨識結束回呼，參數為是否有辨識到內容
  * @param {Function} options.onError - 錯誤回呼
+ * @param {Function} options.onDebug - 診斷紀錄回呼（每個語音事件都會回報）
  * @returns {SpeechRecognition} 語音辨識實例
  */
-export function createSpeechRecognition({ onResult, onInterim, onEnd, onError }) {
+export function createSpeechRecognition({ onResult, onInterim, onAudioStart, onEnd, onError, onDebug }) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
@@ -28,6 +30,7 @@ export function createSpeechRecognition({ onResult, onInterim, onEnd, onError })
     }
 
     const recognition = new SpeechRecognition();
+    const debug = (msg) => onDebug && onDebug(msg);
 
     // 設定中文（台灣）語言
     recognition.lang = 'zh-TW';
@@ -42,27 +45,33 @@ export function createSpeechRecognition({ onResult, onInterim, onEnd, onError })
     let accumulatedFinal = '';
     let latestInterim = '';
 
+    // 收音過程的各階段事件，用來判斷卡在哪一步
+    recognition.onstart = () => debug('start');
+    recognition.onaudiostart = () => {
+        debug('audiostart（麥克風收音中）');
+        if (onAudioStart) onAudioStart();
+    };
+    recognition.onsoundstart = () => debug('soundstart（偵測到聲音）');
+    recognition.onspeechstart = () => debug('speechstart（偵測到人聲）');
+    recognition.onspeechend = () => debug('speechend');
+    recognition.onaudioend = () => debug('audioend');
+    recognition.onnomatch = () => debug('nomatch');
+
     recognition.onresult = (event) => {
         let currentInterim = '';
+        let fullFinal = '';
 
         for (let i = 0; i < event.results.length; i++) {
             const transcript = event.results[i][0].transcript;
             if (event.results[i].isFinal) {
-                // 重新計算所有 final 結果（避免重複累加）
+                fullFinal += transcript;
             } else {
                 currentInterim += transcript;
             }
         }
-
-        // 重新計算完整的 final 文字
-        let fullFinal = '';
-        for (let i = 0; i < event.results.length; i++) {
-            if (event.results[i].isFinal) {
-                fullFinal += event.results[i][0].transcript;
-            }
-        }
         accumulatedFinal = fullFinal;
         latestInterim = currentInterim;
+        debug(`result：${(fullFinal + currentInterim).slice(0, 20)}`);
 
         // 顯示即時中間結果（final + interim 合併顯示）
         const displayText = accumulatedFinal + currentInterim;
@@ -74,20 +83,16 @@ export function createSpeechRecognition({ onResult, onInterim, onEnd, onError })
     recognition.onend = () => {
         // 語音辨識完全結束後，才送出最終結果
         const finalText = (accumulatedFinal || latestInterim).trim();
+        debug(`end（${finalText ? '有內容' : '無內容'}）`);
         if (finalText && onResult) {
             onResult(finalText);
         }
-        // 回報是否有辨識到內容，讓 UI 能在沒聲音時提示使用者
         if (onEnd) onEnd(!!finalText);
-        // 解除所有事件並釋放實例，避免 iOS 語音引擎被舊實例佔住
-        // （不釋放的話，第二次辨識會收不到任何聲音）
-        recognition.onresult = null;
-        recognition.onend = null;
-        recognition.onerror = null;
+        detach(recognition);
     };
 
     recognition.onerror = (event) => {
-        console.error('語音辨識錯誤:', event.error);
+        debug(`error：${event.error}`);
         // no-speech 不算致命錯誤，讓 onEnd 處理
         if (event.error !== 'no-speech' && onError) {
             onError(event.error);
@@ -97,16 +102,27 @@ export function createSpeechRecognition({ onResult, onInterim, onEnd, onError })
     return recognition;
 }
 
+/** 解除實例上所有事件 handler */
+function detach(recognition) {
+    recognition.onstart = null;
+    recognition.onaudiostart = null;
+    recognition.onsoundstart = null;
+    recognition.onspeechstart = null;
+    recognition.onspeechend = null;
+    recognition.onaudioend = null;
+    recognition.onnomatch = null;
+    recognition.onresult = null;
+    recognition.onend = null;
+    recognition.onerror = null;
+}
+
 /**
  * 強制釋放語音辨識實例（開始新的辨識前呼叫）
- * iOS 上舊實例未釋放會佔住語音引擎，導致下一次辨識收不到聲音
  */
 export function disposeRecognition(recognition) {
     if (!recognition) return;
     try {
-        recognition.onresult = null;
-        recognition.onend = null;
-        recognition.onerror = null;
+        detach(recognition);
         recognition.abort();
     } catch {
         // 已結束的實例 abort 會丟錯，忽略即可
