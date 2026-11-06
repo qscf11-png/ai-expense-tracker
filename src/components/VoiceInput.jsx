@@ -1,7 +1,8 @@
-import { useState, useRef, memo } from 'react';
-import { Mic, MicOff, Loader2, Check, X, Sparkles, Languages, Send, PenLine, Keyboard, RotateCw } from 'lucide-react';
+import { useState, useRef, useEffect, memo } from 'react';
+import { Mic, MicOff, Loader2, Check, X, Sparkles, Languages, Send, PenLine, Keyboard, RotateCw, Square } from 'lucide-react';
 import { isSpeechSupported, createSpeechRecognition, disposeRecognition } from '../services/speech';
-import { parseExpenseWithAI } from '../services/gemini';
+import { isRecordingSupported, startRecording } from '../services/recorder';
+import { parseExpenseWithAI, parseExpenseFromAudio, getProvider, PROVIDERS } from '../services/gemini';
 import { CATEGORIES } from '../utils/categories';
 import { getToday } from '../utils/dateUtils';
 import { getCurrencyLabel } from '../utils/exchangeRate';
@@ -51,6 +52,80 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
     const clearWatchdog = () => {
         clearTimeout(watchdogRef.current);
         watchdogRef.current = null;
+    };
+
+    // ===== 錄音模式（Gemini Key）：錄下聲音交給 AI 聽寫，不經過瀏覽器語音辨識 =====
+    // iOS 主畫面 App 的瀏覽器語音辨識只有第一筆能用，Gemini 可直接聽錄音所以改走這條
+    const useRecorder = getProvider() === PROVIDERS.GEMINI && isRecordingSupported();
+    const MAX_RECORD_SECS = 30;
+    const [recordSecs, setRecordSecs] = useState(0);
+    const recorderRef = useRef(null);
+    const timerRef = useRef(null);
+
+    // 離開語音頁時關閉麥克風
+    useEffect(() => () => {
+        clearInterval(timerRef.current);
+        recorderRef.current?.cancel();
+    }, []);
+
+    const startRecordingFlow = async () => {
+        if (!apiKey) {
+            setError('請先在設定頁面輸入 API Key');
+            return;
+        }
+        setError('');
+        setTranscript('');
+        setEditingText('');
+        setParsed(null);
+        setShowEditor(false);
+        setSpeechFailed(false);
+        sessionRef.current += 1;
+
+        try {
+            log('開啟麥克風');
+            recorderRef.current = await startRecording();
+            log('錄音開始');
+            setRecordSecs(0);
+            setIsListening(true);
+            const startedAt = Date.now();
+            timerRef.current = setInterval(() => {
+                const secs = Math.floor((Date.now() - startedAt) / 1000);
+                setRecordSecs(secs);
+                if (secs >= MAX_RECORD_SECS) stopRecordingFlow();
+            }, 250);
+        } catch (err) {
+            log(`麥克風失敗：${err.name} ${err.message}`);
+            setSpeechFailed(true);
+            setError(
+                err.name === 'NotAllowedError'
+                    ? '麥克風權限被拒絕。請關掉 App 重開，出現詢問時按「允許」'
+                    : `無法開啟麥克風：${err.message}`
+            );
+        }
+    };
+
+    const stopRecordingFlow = async () => {
+        const rec = recorderRef.current;
+        if (!rec) return;
+        recorderRef.current = null;
+        clearInterval(timerRef.current);
+        setIsListening(false);
+        setIsProcessing(true);
+        setError('');
+        try {
+            const blob = await rec.stop();
+            log(`錄音結束：${(blob.size / 1024).toFixed(0)}KB ${blob.type}`);
+            const result = await parseExpenseFromAudio(blob, apiKey, selectedCurrencyRef.current, log);
+            setTranscript(result.transcript || '（語音記帳）');
+            setEditingText(result.transcript || '');
+            setParsed(result);
+        } catch (err) {
+            log(`失敗：${err.message}`);
+            setSpeechFailed(true);
+            setError(err.message);
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
     // 啟動一次辨識；isRetry 表示這是看門狗觸發的自動重試
@@ -139,6 +214,10 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
 
     // 開始錄音
     const startListening = () => {
+        if (useRecorder) {
+            startRecordingFlow();
+            return;
+        }
         if (!speechSupported) {
             setError('此瀏覽器不支援語音辨識，請使用 Chrome');
             return;
@@ -278,23 +357,35 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
 
             {/* 語音狀態顯示 */}
             <div className="min-h-[60px] text-center px-4 w-full">
-                {isListening && (
+                {isListening && (useRecorder ? (
+                    <div className="space-y-1">
+                        <div className="text-red-400 text-lg font-medium flex items-center justify-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                            錄音中 0:{String(recordSecs).padStart(2, '0')}
+                        </div>
+                        <p className="text-white/40 text-xs">說完再按一下停止</p>
+                    </div>
+                ) : (
                     <div className="text-cyan-400 animate-pulse text-lg font-medium">
                         🎧 正在聆聽...
                     </div>
-                )}
+                ))}
                 {interimText && (
                     <p className="text-white/60 text-sm mt-2 italic">「{interimText}」</p>
                 )}
                 {isProcessing && (
                     <div className="flex items-center justify-center gap-2 text-purple-400">
                         <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>AI 分析中...</span>
+                        <span>{useRecorder ? 'AI 聽取並分析中...' : 'AI 分析中...'}</span>
                     </div>
                 )}
                 {!isListening && !isProcessing && !parsed && !error && (
                     <p className="text-white/40 text-sm">
-                        {apiKey ? '按下麥克風說出消費內容' : '請先在設定頁面輸入 API Key'}
+                        {!apiKey
+                            ? '請先在設定頁面輸入 API Key'
+                            : useRecorder
+                                ? '按下麥克風開始錄音，說完再按一下'
+                                : '按下麥克風說出消費內容'}
                     </p>
                 )}
             </div>
@@ -308,7 +399,7 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
                     </>
                 )}
                 <button
-                    onClick={isListening ? stopListening : startListening}
+                    onClick={isListening ? (useRecorder ? stopRecordingFlow : stopListening) : startListening}
                     disabled={isProcessing}
                     className={`relative z-10 w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 ${isListening
                         ? 'bg-gradient-to-br from-red-500 to-red-700 shadow-[0_0_40px_rgba(239,68,68,0.5)] scale-110'
@@ -320,15 +411,17 @@ export default memo(function VoiceInput({ onSave, apiKey }) {
                     {isProcessing ? (
                         <Loader2 className="w-10 h-10 text-white/60 animate-spin" />
                     ) : isListening ? (
-                        <MicOff className="w-10 h-10 text-white" />
+                        useRecorder
+                            ? <Square className="w-9 h-9 text-white fill-white" />
+                            : <MicOff className="w-10 h-10 text-white" />
                     ) : (
                         <Mic className="w-10 h-10 text-white" />
                     )}
                 </button>
             </div>
 
-            {/* 鍵盤輸入：可直接打字，或用 iOS 鍵盤上的麥克風聽寫 */}
-            {!parsed && !isProcessing && !isListening && (
+            {/* 鍵盤輸入：只在語音失敗時出現，當作備援 */}
+            {speechFailed && !parsed && !isProcessing && !isListening && (
                 <div className="w-full max-w-sm">
                     <div className={`flex gap-2 rounded-2xl p-1.5 border transition-colors ${speechFailed
                         ? 'bg-amber-500/10 border-amber-500/40'

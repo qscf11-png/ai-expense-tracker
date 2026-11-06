@@ -657,12 +657,12 @@ export default function Settings({ user }) {
             <div className="bg-white/5 border border-white/10 rounded-2xl p-5 backdrop-blur-sm">
                 <div className="text-white font-medium mb-2">關於</div>
                 <div className="text-white/40 text-xs space-y-1">
-                    <p>AI 語音記帳工具 v2.3</p>
+                    <p>AI 語音記帳工具 v2.4</p>
                     <p className="text-cyan-400/70 font-mono">
                         {window.location.hostname} · {isStandalone() ? '📲 PWA 模式' : '🌐 瀏覽器模式'}
                     </p>
                     <p>{user ? '☁️ 雲端同步模式 (Firestore)' : '📱 本機儲存模式 (IndexedDB)'}</p>
-                    <p>語音辨識使用 Web Speech API</p>
+                    <p>語音：Gemini Key 為錄音交給 AI 聽寫；達哥 Key 為瀏覽器語音辨識</p>
                     <p>AI 分類使用 Google Gemini API（動態模型選擇）</p>
                 </div>
             </div>

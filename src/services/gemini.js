@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CATEGORIES } from '../utils/categories';
 import { convertToTWD } from '../utils/exchangeRate';
+import { convertToWav, blobToBase64 } from './recorder';
 
 // ====== System Prompt ======
 
@@ -409,4 +410,116 @@ export async function parseExpenseWithAI(text, apiKey, preferredCurrency = 'AUTO
     }
 
     throw new Error('所有 AI 模型都無法使用，請到設定頁面確認 API Key 與模型選擇');
+}
+
+// 不支援音訊輸入或不適合聽寫的模型（語音合成、生圖、即時串流、開源小模型等）
+const AUDIO_UNSUITABLE_RE = /(tts|image|gemma|embedding|live|native-audio|robotics|computer-use|aqa|learnlm)/i;
+
+const AUDIO_PROMPT = `這是一段使用者口述一筆消費的錄音（繁體中文，台灣口音）。
+請先把錄音逐字聽寫成繁體中文，再依照規則解析成 JSON。
+除了原本的欄位，另外加上 transcript 欄位，放你聽寫的原文。
+數字請照實聽寫，例如「一千五百五十七」→ 1557、「三百八」→ 380，不要四捨五入或省略尾數。
+如果錄音裡沒有人說話或聽不清楚，transcript 設為空字串、amount 設為 0。`;
+
+/**
+ * 解析錄音中的消費描述（Gemini 直接聽錄音，不經過瀏覽器語音辨識）
+ * @param {Blob} audioBlob - 錄好的音訊
+ * @param {string} apiKey - Gemini API Key
+ * @param {string} preferredCurrency - 預選幣種
+ * @param {Function} onDebug - 診斷紀錄回呼
+ */
+export async function parseExpenseFromAudio(audioBlob, apiKey, preferredCurrency = 'AUTO', onDebug) {
+    const debug = (msg) => onDebug && onDebug(msg);
+
+    // 統一轉成 WAV；轉檔失敗時改送原始錄音
+    let audio = audioBlob;
+    let mimeType = (audioBlob.type || 'audio/mp4').split(';')[0];
+    try {
+        const { blob, duration } = await convertToWav(audioBlob);
+        debug(`轉檔 WAV：${duration.toFixed(1)} 秒，${(blob.size / 1024).toFixed(0)}KB`);
+        if (duration < 0.5) throw Object.assign(new Error('錄音太短，請說完再按停止'), { tooShort: true });
+        audio = blob;
+        mimeType = 'audio/wav';
+    } catch (err) {
+        if (err.tooShort) throw err;
+        debug(`轉檔失敗，改送原始 ${mimeType}：${err.message}`);
+    }
+    const base64 = await blobToBase64(audio);
+
+    let prompt = AUDIO_PROMPT;
+    if (preferredCurrency && preferredCurrency !== 'AUTO') {
+        prompt += `\n使用者目前的預選幣種是 ${preferredCurrency}。如果錄音中沒有明確說出幣別，請解析為 ${preferredCurrency}。`;
+    }
+
+    // 挑選可聽音訊的模型：使用者選定的優先，其餘依可用清單順序
+    // 直接從語音頁開始用時模型清單還沒載入，先抓一次，避免退回到可能已下架的舊模型
+    if (cachedAvailableModels.length === 0) await fetchAvailableModels(apiKey);
+    const sel = localStorage.getItem('gemini_selected_model') || '';
+    let candidates = cachedAvailableModels.filter((m) => !AUDIO_UNSUITABLE_RE.test(m.id));
+    if (sel) {
+        const selected = candidates.find((m) => m.id === sel);
+        if (selected) candidates = [selected, ...candidates.filter((m) => m.id !== sel)];
+    }
+    if (candidates.length === 0) {
+        candidates = [
+            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+            { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+        ];
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    let lastError = null;
+
+    for (const modelConfig of candidates.slice(0, 4)) {
+        if (isModelOnCooldown(modelConfig.id)) continue;
+        try {
+            debug(`送出給 ${modelConfig.id}`);
+            const model = genAI.getGenerativeModel({
+                model: modelConfig.id,
+                systemInstruction: SYSTEM_PROMPT,
+            });
+            const result = await model.generateContent([
+                { inlineData: { mimeType, data: base64 } },
+                { text: prompt },
+            ]);
+            let jsonStr = (await result.response).text().trim();
+            if (jsonStr.startsWith('```')) {
+                jsonStr = jsonStr.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+            }
+
+            const parsed = JSON.parse(jsonStr);
+            const transcript = (parsed.transcript || '').trim();
+            debug(`聽寫結果：${transcript || '（空白）'}`);
+            if (!transcript && !Number(parsed.amount)) {
+                throw Object.assign(new Error('沒有聽到語音內容，請靠近麥克風再說一次'), { noSpeech: true });
+            }
+
+            const validCategories = CATEGORIES.map((c) => c.id);
+            if (!validCategories.includes(parsed.category)) parsed.category = 'other';
+
+            parsed.currency = parsed.currency?.toUpperCase() || 'TWD';
+            // 預選幣種覆寫：有鎖定幣種且錄音中沒說出幣別 → 強制用鎖定幣種
+            if (
+                preferredCurrency && preferredCurrency !== 'AUTO' &&
+                !parsed.currencyMentioned && !mentionsCurrency(transcript)
+            ) {
+                parsed.currency = preferredCurrency;
+            }
+            parsed.originalAmount = Math.abs(Number(parsed.amount) || 0);
+            parsed.amount = parsed.currency !== 'TWD'
+                ? await convertToTWD(parsed.originalAmount, parsed.currency)
+                : parsed.originalAmount;
+
+            parsed.transcript = transcript;
+            parsed._model = `${modelConfig.name} 🎙️`;
+            return parsed;
+        } catch (error) {
+            if (error.noSpeech) throw error;
+            lastError = error;
+            debug(`${modelConfig.id} 失敗：${error.message?.slice(0, 80)}`);
+            if (isQuotaError(error)) setModelCooldown(modelConfig.id);
+        }
+    }
+
+    throw new Error(`AI 語音辨識失敗：${lastError?.message?.slice(0, 100) || '沒有可用的模型'}`);
 }
